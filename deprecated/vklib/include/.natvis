@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+    <Type Name="Base_copyable&lt;*&gt;">
+        <DisplayString>{{ content = {content._Ptr}}}</DisplayString>
+        <Expand>
+            <Item Name="content">{content._Ptr}</Item>
+        </Expand>
+    </Type>
+</AutoVisualizer>

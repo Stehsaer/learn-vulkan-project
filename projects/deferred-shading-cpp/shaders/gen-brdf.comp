@@ -1,0 +1,88 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : enable
+
+#include "pbr.glsl"
+
+layout(set = 0, binding = 0, rg16) uniform writeonly image2D img;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+float RadicalInverse_VdC(uint bits) 
+{
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+}
+
+vec2 Hammersley(uint i, uint N)
+{
+    return vec2(float(i)/float(N), RadicalInverse_VdC(i));
+}
+
+vec3 sample_ggx(vec2 xi, vec3 normal, vec3 up, vec3 right, float roughness)
+{
+	float r2 = roughness * roughness;
+
+	float phi = 2 * PI * xi.x;
+
+	float cos_theta = sqrt((1.0 - xi.y) / (1.0 + (r2 * r2 - 1.0) * xi.y));
+	float sin_theta = sqrt(1 - cos_theta * cos_theta);
+	
+	return normalize(cos(phi) * sin_theta * right + sin(phi) * sin_theta * up + cos_theta * normal);
+}
+
+vec2 IntegrateBRDF(float NdotV, float roughness)
+{
+    vec3 V;
+    V.x = sqrt(1.0 - NdotV*NdotV);
+    V.y = 0.0;
+    V.z = NdotV;
+
+    float A = 0.0;
+    float B = 0.0;
+
+    vec3 N = vec3(0.0, 0.0, 1.0);
+
+    const uint SAMPLE_COUNT = 1024u;
+
+    for(uint i = 0u; i < SAMPLE_COUNT; ++i)
+    {
+        vec2 Xi = Hammersley(i, SAMPLE_COUNT);
+        vec3 H  = sample_ggx(Xi, N, vec3(0, 1, 0), vec3(1, 0, 0), roughness);
+        vec3 L  = normalize(2.0 * dot(V, H) * H - V);
+
+        float NdotL = L.z;
+        float NdotH = H.z;
+        float VdotH = dot(V, H);
+
+        if(NdotL > 0.0)
+        {
+            float G = geometry_occlusion(N, V, L, k_mapping_ibl(roughness));
+            float G_Vis = (G * VdotH) / (NdotH * NdotV);
+            float Fc = pow(1.0 - VdotH, 5.0);
+
+            A += (1.0 - Fc) * G_Vis;
+            B += Fc * G_Vis;
+        }
+    }
+
+    A /= float(SAMPLE_COUNT);
+    B /= float(SAMPLE_COUNT);
+
+    return vec2(A, B);
+}
+
+void main() 
+{
+    uvec2 global_id = gl_GlobalInvocationID.xy;
+	uvec2 image_size = imageSize(img);
+
+	if(global_id.x >= image_size.x || global_id.y >= image_size.y) return;
+    
+	vec2 texcoord = vec2(global_id + uvec2(1, 1)) / vec2(image_size.x, image_size.y);
+	imageStore(img, ivec2(global_id), vec4(IntegrateBRDF(texcoord.x, texcoord.y), 0.0, 0.0));
+}

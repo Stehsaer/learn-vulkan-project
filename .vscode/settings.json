@@ -1,0 +1,5 @@
+{
+	"cmake.configureArgs": [
+		//"-DCFG_MINGW=ON"
+	],
+}

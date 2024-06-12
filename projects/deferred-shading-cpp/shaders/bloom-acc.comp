@@ -1,0 +1,35 @@
+#version 450
+
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D downsample;
+layout(set = 0, binding = 1, rgba16f) uniform image2D dst;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+ivec2 src_size = imageSize(dst);
+ivec2 global_id = ivec2(gl_GlobalInvocationID.xy);
+
+ivec2 offsets[4] = {ivec2(-1, -1), ivec2(-1, 1), ivec2(1, -1), ivec2(1, 1)};
+
+void main()
+{
+	vec4 value = imageLoad(dst, global_id);
+	vec4 sum_prev_mip = vec4(0), sum_downsample = vec4(0);
+
+	vec2 uv = (vec2(global_id) + vec2(0.5)) / vec2(src_size);
+	vec2 stride = vec2(2) / vec2(src_size);
+
+	if(global_id.x >= src_size.x || global_id.y >= src_size.y) return;
+
+#pragma unroll_loop_start
+	for(int i = 0; i < 4; i++)
+	{
+		sum_prev_mip += texture(src, uv + stride * vec2(offsets[i])) + imageLoad(downsample, global_id + offsets[i]);
+	}
+#pragma unroll_loop_end
+
+	sum_prev_mip /= 8;
+	sum_prev_mip += (texture(src, uv) + imageLoad(downsample, global_id)) * 0.5;
+
+	imageStore(dst, global_id, sum_prev_mip + value);
+}

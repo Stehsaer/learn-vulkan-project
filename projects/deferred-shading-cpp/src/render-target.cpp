@@ -1,0 +1,904 @@
+#include "app-render.hpp"
+
+#pragma region "Shadow RT"
+
+void Shadow_rt::create(
+	const App_environment&                 env,
+	const Render_pass&                     render_pass,
+	const Descriptor_pool&                 pool,
+	const Descriptor_set_layout&           layout,
+	const std::array<uint32_t, csm_count>& shadow_map_size
+)
+{
+	for (auto i : Range(csm_count))
+	{
+		const auto resolution = shadow_map_size[i];
+
+		// Images
+
+		shadow_images[i] = Image(
+			env.allocator,
+			vk::ImageType::e2D,
+			vk::Extent3D(resolution, resolution, 1),
+			Shadow_pipeline::shadow_map_format,
+			vk::ImageTiling::eOptimal,
+			vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eDepthStencilAttachment,
+			VMA_MEMORY_USAGE_GPU_ONLY,
+			vk::SharingMode::eExclusive
+		);
+
+		shadow_image_views[i] = Image_view(
+			env.device,
+			shadow_images[i],
+			Shadow_pipeline::shadow_map_format,
+			vk::ImageViewType::e2D,
+			{vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1}
+		);
+
+		// Framebuffer
+		shadow_framebuffers[i]
+			= Framebuffer(env.device, render_pass, {shadow_image_views[i]}, vk::Extent3D(resolution, resolution, 1));
+
+		// Buffer
+		shadow_matrix_uniform[i] = Buffer(
+			env.allocator,
+			sizeof(Shadow_pipeline::Shadow_uniform),
+			vk::BufferUsageFlagBits::eUniformBuffer,
+			vk::SharingMode::eExclusive,
+			VMA_MEMORY_USAGE_CPU_TO_GPU
+		);
+
+		// Descriptor Set
+		shadow_matrix_descriptor_set[i] = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+	}
+}
+
+std::array<Descriptor_buffer_update<>, csm_count> Shadow_rt::update_uniform(
+	const std::array<Shadow_pipeline::Shadow_uniform, csm_count>& data
+)
+{
+	for (auto i : Range(csm_count)) shadow_matrix_uniform[i] << std::span(&data[i], 1);
+
+	std::array<Descriptor_buffer_update<>, csm_count> ret;
+
+	for (auto i : Range(csm_count))
+		ret[i] = Descriptor_buffer_update<>{
+			shadow_matrix_descriptor_set[i],
+			0,
+			vk::DescriptorBufferInfo(shadow_matrix_uniform[i], 0, sizeof(Shadow_pipeline::Shadow_uniform))
+		};
+
+	return ret;
+}
+
+#pragma endregion
+
+#pragma region "Gbuffer RT"
+
+void Gbuffer_rt::create(
+	const App_environment&       env,
+	const Render_pass&           render_pass,
+	const Descriptor_pool&       pool,
+	const Descriptor_set_layout& layout,
+	const App_swapchain&         swapchain
+)
+{
+	const auto extent = vk::Extent3D(swapchain.extent, 1);
+
+	/* Images */
+
+	auto create_color_attachment = [=](vk::Format format) -> std::tuple<Image, Image_view>
+	{
+		auto img = Image(
+			env.allocator,
+			vk::ImageType::e2D,
+			extent,
+			format,
+			vk::ImageTiling::eOptimal,
+			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
+			VMA_MEMORY_USAGE_GPU_ONLY,
+			vk::SharingMode::eExclusive
+		);
+
+		auto view = Image_view(
+			env.device,
+			img,
+			format,
+			vk::ImageViewType::e2D,
+			{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
+		);
+
+		return {img, view};
+	};
+
+	std::tie(normal, normal_view)     = create_color_attachment(Gbuffer_pipeline::normal_format);
+	std::tie(albedo, albedo_view)     = create_color_attachment(Gbuffer_pipeline::color_format);
+	std::tie(pbr, pbr_view)           = create_color_attachment(Gbuffer_pipeline::color_format);
+	std::tie(emissive, emissive_view) = create_color_attachment(Gbuffer_pipeline::emissive_format);
+
+	depth = Image(
+		env.allocator,
+		vk::ImageType::e2D,
+		extent,
+		Gbuffer_pipeline::depth_format,
+		vk::ImageTiling::eOptimal,
+		vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
+		VMA_MEMORY_USAGE_GPU_ONLY,
+		vk::SharingMode::eExclusive
+	);
+
+	depth_view = Image_view(
+		env.device,
+		depth,
+		Gbuffer_pipeline::depth_format,
+		vk::ImageViewType::e2D,
+		{vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1}
+	);
+
+	// Framebuffer
+	framebuffer
+		= Framebuffer(env.device, render_pass, {normal_view, albedo_view, pbr_view, emissive_view, depth_view}, extent);
+
+	// Uniform
+	camera_uniform_buffer = Buffer(
+		env.allocator,
+		sizeof(Gbuffer_pipeline::Camera_uniform),
+		vk::BufferUsageFlagBits::eUniformBuffer,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_CPU_TO_GPU
+	);
+
+	camera_uniform_descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+}
+
+Descriptor_buffer_update<> Gbuffer_rt::update_uniform(const Gbuffer_pipeline::Camera_uniform& data)
+{
+	camera_uniform_buffer << std::span(&data, 1);
+
+	return {
+		camera_uniform_descriptor_set,
+		0,
+		{camera_uniform_buffer, 0, sizeof(Gbuffer_pipeline::Camera_uniform)}
+	};
+}
+
+#pragma endregion
+
+#pragma region "Lighting RT"
+
+void Lighting_rt::create(
+	const App_environment&       env,
+	const Render_pass&           render_pass,
+	const Descriptor_pool&       pool,
+	const Descriptor_set_layout& layout,
+	const App_swapchain&         swapchain
+)
+{
+	const auto extent = vk::Extent3D(swapchain.extent, 1);
+
+	luminance = Image(
+		env.allocator,
+		vk::ImageType::e2D,
+		extent,
+		Lighting_pipeline::luminance_format,
+		vk::ImageTiling::eOptimal,
+		vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
+			| vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage,
+		VMA_MEMORY_USAGE_GPU_ONLY,
+		vk::SharingMode::eExclusive
+	);
+
+	brightness = Image(
+		env.allocator,
+		vk::ImageType::e2D,
+		extent,
+		vk::Format::eR16Sfloat,
+		vk::ImageTiling::eOptimal,
+		vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eStorage,
+		VMA_MEMORY_USAGE_GPU_ONLY,
+		vk::SharingMode::eExclusive
+	);
+
+	luminance_view = Image_view(
+		env.device,
+		luminance,
+		Lighting_pipeline::luminance_format,
+		vk::ImageViewType::e2D,
+		{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
+	);
+
+	brightness_view = Image_view(
+		env.device,
+		brightness,
+		vk::Format::eR16Sfloat,
+		vk::ImageViewType::e2D,
+		{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
+	);
+
+	framebuffer = Framebuffer(env.device, render_pass, {luminance_view, brightness_view}, extent);
+
+	const auto sampler_create_info = vk::SamplerCreateInfo()
+										 .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+										 .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+										 .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+										 .setMipmapMode(vk::SamplerMipmapMode::eNearest)
+										 .setAnisotropyEnable(false)
+										 .setCompareEnable(false)
+										 .setMinLod(0.0)
+										 .setMaxLod(1.0)
+										 .setMinFilter(vk::Filter::eNearest)
+										 .setMagFilter(vk::Filter::eNearest);
+	input_sampler = Image_sampler(env.device, sampler_create_info);
+
+	vk::SamplerCreateInfo shadow_map_sampler_create_info;
+	shadow_map_sampler_create_info.setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+		.setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+		.setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+		.setMipmapMode(vk::SamplerMipmapMode::eNearest)
+		.setMagFilter(vk::Filter::eLinear)
+		.setMinFilter(vk::Filter::eLinear)
+		.setMaxLod(1.0)
+		.setMinLod(0.0)
+		// Hardware PCF
+		.setCompareEnable(true)
+		.setCompareOp(vk::CompareOp::eLessOrEqual)
+		.setAnisotropyEnable(false)
+		.setMaxAnisotropy(1.0)
+		.setUnnormalizedCoordinates(false);
+	shadow_map_sampler = Image_sampler(env.device, shadow_map_sampler_create_info);
+
+	transmat_buffer = Buffer(
+		env.allocator,
+		sizeof(Lighting_pipeline::Trans_mat),
+		vk::BufferUsageFlagBits::eUniformBuffer,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_CPU_TO_GPU
+	);
+
+	input_descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+}
+
+std::array<Descriptor_image_update<>, 5> Lighting_rt::link_gbuffer(const Gbuffer_rt& gbuffer)
+{
+	const vk::DescriptorImageInfo normal_info{
+		input_sampler,
+		gbuffer.normal_view,
+		vk::ImageLayout::eShaderReadOnlyOptimal
+	},
+		albedo_info{input_sampler, gbuffer.albedo_view, vk::ImageLayout::eShaderReadOnlyOptimal},
+		pbr_info{input_sampler, gbuffer.pbr_view, vk::ImageLayout::eShaderReadOnlyOptimal},
+		emissive_info{input_sampler, gbuffer.emissive_view, vk::ImageLayout::eShaderReadOnlyOptimal},
+		depth_info{input_sampler, gbuffer.depth_view, vk::ImageLayout::eShaderReadOnlyOptimal};
+
+	std::array<Descriptor_image_update<>, 5> ret;
+
+	for (auto& pak : ret) pak.set = input_descriptor_set;
+
+	ret[0].binding = 0, ret[0].info = depth_info;
+	ret[1].binding = 1, ret[1].info = normal_info;
+	ret[2].binding = 2, ret[2].info = albedo_info;
+	ret[3].binding = 3, ret[3].info = pbr_info;
+	ret[4].binding = 5, ret[4].info = emissive_info;
+
+	return ret;
+}
+
+Descriptor_image_update<csm_count> Lighting_rt::link_shadow(const Shadow_rt& shadow)
+{
+	Descriptor_image_update<csm_count> ret;
+	ret.set     = input_descriptor_set;
+	ret.binding = 4;
+
+	for (auto i : Range(csm_count))
+		ret.info[i] = {shadow_map_sampler, shadow.shadow_image_views[i], vk::ImageLayout::eShaderReadOnlyOptimal};
+
+	return ret;
+}
+
+Descriptor_buffer_update<> Lighting_rt::update_uniform(const Lighting_pipeline::Trans_mat& data)
+{
+	transmat_buffer << std::span(&data, 1);
+
+	Descriptor_buffer_update<> ret;
+	ret.set     = input_descriptor_set;
+	ret.binding = 6;
+	ret.info    = {transmat_buffer, 0, sizeof(Lighting_pipeline::Trans_mat)};
+
+	return ret;
+}
+
+#pragma endregion
+
+#pragma region "Auto Exposure RT"
+
+void Auto_exposure_compute_rt::create(
+	const App_environment&                env,
+	const Descriptor_pool&                pool,
+	const Auto_exposure_compute_pipeline& pipeline,
+	uint32_t                              count
+)
+{
+	const auto result_staging_buffer = Buffer(
+		env.allocator,
+		sizeof(Auto_exposure_compute_pipeline::Exposure_result),
+		vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferSrc,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_CPU_TO_GPU
+	);
+
+	const Auto_exposure_compute_pipeline::Exposure_result init_result{0, 0};
+	result_staging_buffer << std::span(&init_result, 1);
+
+	const auto medium_staging_buffer = Buffer(
+		env.allocator,
+		sizeof(Auto_exposure_compute_pipeline::Exposure_medium),
+		vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferSrc,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_CPU_TO_GPU
+	);
+
+	Auto_exposure_compute_pipeline::Exposure_medium init_medium;
+	std::fill_n(init_medium.pixel_count, 256, 0);
+	medium_staging_buffer << std::span(&init_medium, 1);
+
+	out_buffer = Buffer(
+		env.allocator,
+		sizeof(Auto_exposure_compute_pipeline::Exposure_result),
+		vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eStorageBuffer
+			| vk::BufferUsageFlagBits::eTransferDst,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+
+	medium_buffer = Buffer(
+		env.allocator,
+		sizeof(Auto_exposure_compute_pipeline::Exposure_medium),
+		vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+
+	const std::vector<vk::DescriptorSetLayout> luminance_avg_layout(
+		count,
+		pipeline.luminance_avg_descriptor_set_layout
+	);
+
+	luminance_avg_descriptor_sets = Descriptor_set::create_multiple(env.device, pool, luminance_avg_layout);
+
+	lerp_descriptor_set = Descriptor_set::create_multiple(env.device, pool, {pipeline.lerp_descriptor_set_layout})[0];
+
+	const auto command_buffer = Command_buffer(env.command_pool);
+	command_buffer.begin(true);
+	command_buffer
+		.copy_buffer(out_buffer, result_staging_buffer, 0, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result));
+	command_buffer.copy_buffer(
+		medium_buffer,
+		medium_staging_buffer,
+		0,
+		0,
+		sizeof(Auto_exposure_compute_pipeline::Exposure_medium)
+	);
+	command_buffer.end();
+
+	const auto cmd_buf_list = Command_buffer::to_array({command_buffer});
+	env.t_queue.submit(vk::SubmitInfo().setCommandBuffers(cmd_buf_list));
+	env.device->waitIdle();
+}
+
+std::tuple<
+	std::vector<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+	std::vector<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>>>
+Auto_exposure_compute_rt::link_lighting(const std::vector<Lighting_rt>& rt)
+{
+	std::vector<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>   ret1;
+	std::vector<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>> ret2;
+	ret1.reserve(rt.size());
+	ret2.reserve(rt.size());
+
+	for (auto i : Range(rt.size()))
+	{
+		ret1.emplace_back(
+			luminance_avg_descriptor_sets[i],
+			0,
+			vk::DescriptorImageInfo({}, rt[i].brightness_view, vk::ImageLayout::eGeneral)
+		);
+
+		ret2.emplace_back(
+			luminance_avg_descriptor_sets[i],
+			1,
+			vk::DescriptorBufferInfo(medium_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_medium))
+		);
+	}
+
+	return {ret1, ret2};
+}
+
+std::array<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>, 2> Auto_exposure_compute_rt::link_self()
+{
+	return {
+		{{lerp_descriptor_set,
+		  0,
+		  vk::DescriptorBufferInfo(medium_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_medium))},
+		 {lerp_descriptor_set,
+		  1,
+		  vk::DescriptorBufferInfo(out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result))}}
+	};
+}
+
+#pragma endregion
+
+#pragma region "Bloom RT"
+
+void Bloom_rt::create(
+	const App_environment& env,
+	const App_swapchain&   swapchain,
+	const Descriptor_pool& pool,
+	const Bloom_pipeline&  pipeline
+)
+{
+	const auto extent = swapchain.extent;
+
+	bloom_downsample_chain = Image(
+		env.allocator,
+		vk::ImageType::e2D,
+		vk::Extent3D{extent, 1},
+		vk::Format::eR16G16B16A16Sfloat,
+		vk::ImageTiling::eOptimal,
+		vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst
+			| vk::ImageUsageFlagBits::eTransferSrc,
+		VMA_MEMORY_USAGE_GPU_ONLY,
+		vk::SharingMode::eExclusive,
+		bloom_downsample_count
+	);
+
+	extents[0] = extent;
+	for (auto i : Range(bloom_downsample_count))
+	{
+		downsample_chain_view[i] = Image_view(
+			env.device,
+			bloom_downsample_chain,
+			vk::Format::eR16G16B16A16Sfloat,
+			vk::ImageViewType::e2D,
+			{vk::ImageAspectFlagBits::eColor, i, 1, 0, 1}
+		);
+
+		if (i != 0)
+			extents[i] = vk::Extent2D(
+				extents[i - 1].width == 1 ? 1 : extents[i - 1].width / 2,
+				extents[i - 1].height == 1 ? 1 : extents[i - 1].height / 2
+			);
+	}
+
+	bloom_upsample_chain = Image(
+		env.allocator,
+		vk::ImageType::e2D,
+		vk::Extent3D{extents[1], 1},
+		vk::Format::eR16G16B16A16Sfloat,
+		vk::ImageTiling::eOptimal,
+		vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc,
+		VMA_MEMORY_USAGE_GPU_ONLY,
+		vk::SharingMode::eExclusive,
+		bloom_downsample_count - 2
+	);
+
+	upsample_chain_sampler = [=]
+	{
+		const auto sampler_create_info = vk::SamplerCreateInfo()
+											 .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+											 .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+											 .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+											 .setMipmapMode(vk::SamplerMipmapMode::eNearest)
+											 .setAnisotropyEnable(false)
+											 .setCompareEnable(false)
+											 .setMinLod(0)
+											 .setMaxLod(1)
+											 .setMinFilter(vk::Filter::eLinear)
+											 .setMagFilter(vk::Filter::eLinear)
+											 .setUnnormalizedCoordinates(false);
+
+		return Image_sampler(env.device, sampler_create_info);
+	}();
+
+	for (auto i : Range(bloom_downsample_count - 2))
+	{
+		upsample_chain_view[i] = Image_view(
+			env.device,
+			bloom_upsample_chain,
+			vk::Format::eR16G16B16A16Sfloat,
+			vk::ImageViewType::e2D,
+			{vk::ImageAspectFlagBits::eColor, i, 1, 0, 1}
+		);
+	}
+
+	bloom_filter_descriptor_set
+		= Descriptor_set::create_multiple(env.device, pool, {pipeline.bloom_filter_descriptor_set_layout})[0];
+
+	// Create => bloom_blur_descriptor_sets
+	{
+		const std::vector<vk::DescriptorSetLayout> bloom_blur_layouts(
+			bloom_downsample_count - 2,
+			pipeline.bloom_blur_descriptor_set_layout
+		);
+
+		bloom_blur_descriptor_sets = Descriptor_set::create_multiple(env.device, pool, bloom_blur_layouts);
+	}
+
+	// Create => bloom_acc_descriptor_sets
+	{
+		const std::vector<vk::DescriptorSetLayout> bloom_acc_layouts(
+			bloom_downsample_count - 2,
+			pipeline.bloom_acc_descriptor_set_layout
+		);
+
+		bloom_acc_descriptor_sets = Descriptor_set::create_multiple(env.device, pool, bloom_acc_layouts);
+	}
+}
+
+std::tuple<std::array<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, 2>, Descriptor_buffer_update<>>
+Bloom_rt::link_bloom_filter(const Lighting_rt& lighting, const Auto_exposure_compute_rt& exposure)
+{
+	const auto link_lighting = Descriptor_image_update<1, vk::DescriptorType::eStorageImage>{
+		bloom_filter_descriptor_set,
+		0,
+		{{}, lighting.luminance_view, vk::ImageLayout::eGeneral}
+	};
+
+	const auto link_self = Descriptor_image_update<1, vk::DescriptorType::eStorageImage>{
+		bloom_filter_descriptor_set,
+		1,
+		{{}, downsample_chain_view[0], vk::ImageLayout::eGeneral}
+	};
+
+	const auto link_uniform = Descriptor_buffer_update<>{
+		bloom_filter_descriptor_set,
+		2,
+		{exposure.out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result)}
+	};
+
+	return {
+		{link_lighting, link_self},
+		link_uniform
+	};
+}
+
+std::array<
+	std::tuple<
+		Descriptor_image_update<1, vk::DescriptorType::eStorageImage>,
+		Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+	bloom_downsample_count - 2>
+Bloom_rt::link_bloom_blur()
+{
+	std::array<
+		std::tuple<
+			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>,
+			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+		bloom_downsample_count - 2>
+		ret;
+
+	for (auto i : Range(bloom_downsample_count - 2))
+	{
+		ret[i] = {
+			{bloom_blur_descriptor_sets[i], 0, {{}, downsample_chain_view[i + 1], vk::ImageLayout::eGeneral}},
+			{bloom_blur_descriptor_sets[i], 1, {{}, upsample_chain_view[i], vk::ImageLayout::eGeneral}      }
+		};
+	}
+
+	return ret;
+}
+
+std::array<std::tuple<Descriptor_image_update<>, Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>, bloom_downsample_count - 2>
+Bloom_rt::link_bloom_acc()
+{
+	std::array<
+		std::tuple<
+			Descriptor_image_update<>,
+			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>,
+			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+		bloom_downsample_count - 2>
+		ret;
+
+	for (auto i : Range(bloom_downsample_count - 2))
+	{
+		const auto src_view = i == bloom_downsample_count - 3 ? downsample_chain_view[bloom_downsample_count - 1]
+															  : upsample_chain_view[i + 1];
+
+		ret[i] = {
+			{bloom_acc_descriptor_sets[i], 0, {upsample_chain_sampler, src_view, vk::ImageLayout::eShaderReadOnlyOptimal}},
+			{bloom_acc_descriptor_sets[i], 1, {{}, upsample_chain_view[i], vk::ImageLayout::eGeneral}                    },
+			{bloom_acc_descriptor_sets[i], 2, {{}, downsample_chain_view[i + 1], vk::ImageLayout::eGeneral}              }
+		};
+	}
+
+	return ret;
+}
+
+#pragma endregion
+
+#pragma region "Composite RT"
+
+void Composite_rt::create(
+	const App_environment& env,
+
+	const Render_pass&           render_pass,
+	const Descriptor_pool&       pool,
+	const Descriptor_set_layout& layout,
+	const App_swapchain&         swapchain,
+	uint32_t                     idx
+)
+{
+	image_view  = swapchain.image_views[idx];
+	framebuffer = Framebuffer(env.device, render_pass, {image_view}, vk::Extent3D(swapchain.extent, 1));
+
+	const auto sampler_create_info = vk::SamplerCreateInfo()
+										 .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+										 .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+										 .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+										 .setMipmapMode(vk::SamplerMipmapMode::eNearest)
+										 .setAnisotropyEnable(false)
+										 .setCompareEnable(false)
+										 .setMinLod(0.0)
+										 .setMaxLod(1.0)
+										 .setMinFilter(vk::Filter::eNearest)
+										 .setMagFilter(vk::Filter::eNearest);
+	input_sampler = Image_sampler(env.device, sampler_create_info);
+
+	params_buffer = Buffer(
+		env.allocator,
+		sizeof(Composite_pipeline::Exposure_param),
+		vk::BufferUsageFlagBits::eUniformBuffer,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_CPU_TO_GPU
+	);
+
+	descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+}
+
+Descriptor_image_update<> Composite_rt::link_lighting(const Lighting_rt& lighting)
+{
+	return {
+		descriptor_set,
+		0,
+		{input_sampler, lighting.luminance_view, vk::ImageLayout::eShaderReadOnlyOptimal}
+	};
+}
+
+Descriptor_buffer_update<> Composite_rt::link_auto_exposure(const Auto_exposure_compute_rt& rt)
+{
+	return {
+		descriptor_set,
+		2,
+		{rt.out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result)}
+	};
+}
+
+Descriptor_image_update<> Composite_rt::link_bloom(const Bloom_rt& bloom)
+{
+	return {
+		descriptor_set,
+		3,
+		{bloom.upsample_chain_sampler, bloom.upsample_chain_view[0], vk::ImageLayout::eShaderReadOnlyOptimal}
+	};
+}
+
+Descriptor_buffer_update<> Composite_rt::update_uniform(const Composite_pipeline::Exposure_param& data)
+{
+	params_buffer << std::span(&data, 1);
+
+	return {
+		descriptor_set,
+		1,
+		{params_buffer, 0, sizeof(Composite_pipeline::Exposure_param)}
+	};
+}
+
+#pragma endregion
+
+void Main_rt::create(
+	const App_environment& env,
+	const App_swapchain&   swapchain,
+	const Main_pipeline&   pipeline,
+	bool                   recreate
+)
+{
+	create_sync_objects(env);
+
+	std::map<vk::DescriptorType, uint32_t> pool_sizes;
+
+	auto add_to_size = [&](std::span<vk::DescriptorPoolSize> span, uint32_t mul)
+	{
+		for (const auto& item : span)
+		{
+			auto find = pool_sizes.find(item.type);
+
+			if (find != pool_sizes.end())
+				find->second += item.descriptorCount * mul;
+			else
+				pool_sizes.emplace(item.type, item.descriptorCount * mul);
+		}
+	};
+
+	add_to_size(Shadow_pipeline::descriptor_pool_size, swapchain.image_count);
+	add_to_size(Gbuffer_pipeline::descriptor_pool_size, swapchain.image_count);
+	add_to_size(Lighting_pipeline::descriptor_pool_size, swapchain.image_count);
+	add_to_size(Auto_exposure_compute_pipeline::descriptor_pool_size, swapchain.image_count);
+	add_to_size(Auto_exposure_compute_pipeline::unvaried_descriptor_pool_size, 1);
+	add_to_size(Bloom_pipeline::descriptor_pool_size, swapchain.image_count);
+	add_to_size(Composite_pipeline::descriptor_pool_size, swapchain.image_count);
+
+	std::vector<vk::DescriptorPoolSize> descriptor_pool_sizes;
+	descriptor_pool_sizes.reserve(pool_sizes.size());
+	for (const auto& pair : pool_sizes) descriptor_pool_sizes.emplace_back(pair.first, pair.second);
+
+	shared_pool = Descriptor_pool(env.device, descriptor_pool_sizes, 1024);
+
+	shadow_rt.resize(swapchain.image_count);
+	gbuffer_rt.resize(swapchain.image_count);
+	lighting_rt.resize(swapchain.image_count);
+	composite_rt.resize(swapchain.image_count);
+	bloom_rt.resize(swapchain.image_count);
+
+	if (!recreate)
+		for (auto& rt : shadow_rt)
+			rt.create(
+				env,
+				pipeline.shadow_pipeline.render_pass,
+				shared_pool,
+				pipeline.shadow_pipeline.descriptor_set_layout_shadow_matrix,
+				shadow_map_res
+			);
+
+	for (auto& rt : gbuffer_rt)
+		rt.create(
+			env,
+			pipeline.gbuffer_pipeline.render_pass,
+			shared_pool,
+			pipeline.gbuffer_pipeline.descriptor_set_layout_camera,
+			swapchain
+		);
+
+	for (auto& rt : lighting_rt)
+		rt.create(
+			env,
+			pipeline.lighting_pipeline.render_pass,
+			shared_pool,
+			pipeline.lighting_pipeline.gbuffer_input_layout,
+			swapchain
+		);
+
+	auto_exposure_rt.create(env, shared_pool, pipeline.auto_exposure_pipeline, swapchain.image_count);
+
+	for (auto& rt : bloom_rt) rt.create(env, swapchain, shared_pool, pipeline.bloom_pipeline);
+
+	for (auto i : Range(swapchain.image_count))
+		composite_rt[i].create(
+			env,
+			pipeline.composite_pipeline.render_pass,
+			shared_pool,
+			pipeline.composite_pipeline.descriptor_set_layout,
+			swapchain,
+			i
+		);
+
+	// link
+
+	for (auto i : Range(swapchain.image_count))
+	{
+		std::vector<vk::WriteDescriptorSet> write_sets;
+		write_sets.reserve(128);
+
+		const auto lighting_link_gbuffer = lighting_rt[i].link_gbuffer(gbuffer_rt[i]);
+		for (const auto& item : lighting_link_gbuffer) write_sets.push_back(item.write_info());
+
+		const auto lighting_link_shadow = lighting_rt[i].link_shadow(shadow_rt[i]);
+		write_sets.push_back(lighting_link_shadow.write_info());
+
+		const auto composite_link_lighting = composite_rt[i].link_lighting(lighting_rt[i]);
+		write_sets.push_back(composite_link_lighting.write_info());
+
+		const auto composite_link_auto_exposure = composite_rt[i].link_auto_exposure(auto_exposure_rt);
+		write_sets.push_back(composite_link_auto_exposure.write_info());
+
+		const auto composite_link_bloom = composite_rt[i].link_bloom(bloom_rt[i]);
+		write_sets.push_back(composite_link_bloom.write_info());
+
+		const auto [bloom_link_filter_image, bloom_link_filter_buffer]
+			= bloom_rt[i].link_bloom_filter(lighting_rt[i], auto_exposure_rt);
+		write_sets.push_back(bloom_link_filter_image[0].write_info());
+		write_sets.push_back(bloom_link_filter_image[1].write_info());
+		write_sets.push_back(bloom_link_filter_buffer.write_info());
+
+		const auto bloom_link_blur = bloom_rt[i].link_bloom_blur();
+		for (const auto& item : bloom_link_blur)
+		{
+			write_sets.push_back(std::get<0>(item).write_info());
+			write_sets.push_back(std::get<1>(item).write_info());
+		}
+
+		const auto bloom_link_acc = bloom_rt[i].link_bloom_acc();
+		for (const auto& item : bloom_link_acc)
+		{
+			write_sets.push_back(std::get<0>(item).write_info());
+			write_sets.push_back(std::get<1>(item).write_info());
+			write_sets.push_back(std::get<2>(item).write_info());
+		}
+
+		env.device->updateDescriptorSets(write_sets, {});
+	}
+
+	{  // Auto Exposure Link
+		const auto auto_exposure_link_lighting = auto_exposure_rt.link_lighting(lighting_rt);
+		const auto auto_exposure_link_self     = auto_exposure_rt.link_self();
+
+		std::vector<vk::WriteDescriptorSet> auto_exposure_write_infos;
+
+		for (const auto& item : std::get<0>(auto_exposure_link_lighting))
+			auto_exposure_write_infos.push_back(item.write_info());
+
+		for (const auto& item : std::get<1>(auto_exposure_link_lighting))
+			auto_exposure_write_infos.push_back(item.write_info());
+
+		for (const auto& item : auto_exposure_link_self) auto_exposure_write_infos.push_back(item.write_info());
+
+		env.device->updateDescriptorSets(auto_exposure_write_infos, {});
+	}
+}
+
+void Main_rt::create_sync_objects(const App_environment& env)
+{
+	acquire_semaphore     = Semaphore(env.device);
+	render_done_semaphore = Semaphore(env.device);
+	next_frame_fence      = Fence(env.device, vk::FenceCreateFlagBits::eSignaled);
+}
+
+void Main_rt::update_uniform(
+	const App_environment&                  env,
+	uint32_t                                idx,
+	const glm::mat4&                        view_projection,
+	const glm::vec3&                        camera_position,
+	const std::array<glm::mat4, csm_count>& shadow,
+	const glm::vec3&                        sunlight_pos,
+	const glm::vec3&                        sunlight_color,
+	float                                   exposure,
+	float                                   emissive_brightness,
+	float                                   skybox_brightness,
+	float                                   bloom_intensity
+)
+{
+	std::array<Shadow_pipeline::Shadow_uniform, csm_count> shadow_uniforms;
+	for (auto i : Range(csm_count)) shadow_uniforms[i] = {shadow[i]};
+
+	const Gbuffer_pipeline::Camera_uniform gbuffer_camera_uniform{view_projection};
+
+	const Lighting_pipeline::Trans_mat transmat{
+		glm::inverse(view_projection),
+		camera_position,
+		{shadow[0], shadow[1], shadow[2]},
+		sunlight_pos,
+		sunlight_color,
+		emissive_brightness,
+		skybox_brightness
+	};
+
+	const Composite_pipeline::Exposure_param composite_exposure_param{exposure, bloom_intensity};
+
+	const auto shadow_update = shadow_rt[idx].update_uniform(shadow_uniforms);
+
+	std::array<vk::WriteDescriptorSet, csm_count> shadow_update_info;
+	for (auto i : Range(csm_count)) shadow_update_info[i] = shadow_update[i].write_info();
+
+	const auto gbuffer_update      = gbuffer_rt[idx].update_uniform(gbuffer_camera_uniform);
+	const auto gbuffer_update_info = gbuffer_update.write_info();
+
+	const auto lighting_update      = lighting_rt[idx].update_uniform(transmat);
+	const auto lighting_update_info = lighting_update.write_info();
+
+	const auto composite_update      = composite_rt[idx].update_uniform(composite_exposure_param);
+	const auto composite_update_info = composite_update.write_info();
+
+	const auto update_info = utility::join_array(
+		shadow_update_info,
+		std::to_array({gbuffer_update_info, lighting_update_info, composite_update_info})
+	);
+
+	env.device->updateDescriptorSets(update_info, {});
+}

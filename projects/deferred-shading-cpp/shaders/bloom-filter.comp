@@ -1,0 +1,38 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform readonly image2D luminance_in;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D filtered_out;
+
+layout(set = 0, binding = 2) uniform Luminance_data 
+{
+	float luminance;
+	float prev_luminance;
+} luminance_data;
+
+layout(push_constant) uniform Params
+{
+	float start_threshold;
+	float end_threshold;
+	float exposure;
+} params;
+
+void main()
+{
+	const ivec2 global_id = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 tex_size = imageSize(luminance_in);
+
+	if(global_id.x >= tex_size.x || global_id.y >= tex_size.y) return;
+
+	vec4 image_val = imageLoad(luminance_in, global_id) * params.exposure;
+	float rel_brightness = image_val.a / (exp2(luminance_data.luminance) * 9.6);
+
+	image_val *= smoothstep(params.start_threshold, params.end_threshold, rel_brightness);
+
+	if(rel_brightness > params.start_threshold)
+		imageStore(filtered_out, global_id, image_val);
+	else
+		imageStore(filtered_out, global_id, vec4(0.0));
+
+}

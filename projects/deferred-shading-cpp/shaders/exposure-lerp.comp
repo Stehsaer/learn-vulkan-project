@@ -1,0 +1,53 @@
+#version 450
+
+layout(std430, set = 0, binding = 0) buffer Medium_buffer
+{
+	int histogram[256];
+} medium_buffer;
+
+layout(std430, set = 0, binding = 1) buffer Out_buffer 
+{
+	float luminance;
+	float prev_luminance;
+} out_buffer;
+
+layout(push_constant) uniform Params
+{
+	float adapt_speed;
+	float delta_time;
+
+	float min_luminance;
+	float max_luminance;
+
+	uint texture_size_x;
+	uint texture_size_y;
+} params;
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+float get_histogram(int idx)
+{
+	float loc = (float(idx) + 0.5) / 256;
+	return mix(params.min_luminance, params.max_luminance, loc);
+}
+
+void main()
+{
+	float total_luminance = 0;
+
+#pragma unroll_loop_start
+	for(int i = 0; i < 256; i++)
+	{
+		total_luminance += get_histogram(i) * medium_buffer.histogram[i];
+		medium_buffer.histogram[i] = 0;
+	}
+#pragma unroll_loop_end
+
+	float weight_sum = params.texture_size_x * params.texture_size_y * 0.2984349184369049;
+
+	float weighted_luminance = total_luminance / weight_sum;
+
+	float target_luminance = mix(out_buffer.prev_luminance, weighted_luminance, clamp(1 - exp(-params.adapt_speed * params.delta_time), 0, 1));
+	out_buffer.luminance = target_luminance;
+	out_buffer.prev_luminance = target_luminance;
+}

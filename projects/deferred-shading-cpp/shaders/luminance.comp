@@ -1,0 +1,53 @@
+#version 450
+
+layout(set = 0, binding = 0, r16f) uniform readonly image2D luminance;
+layout(std430, set = 0, binding = 1) buffer Medium_buffer
+{
+	int histogram[256];
+} medium_buffer;
+
+layout(push_constant) uniform Params
+{
+	float min_luminance;
+	float max_luminance;
+} params;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+shared int idx_per_thread[256];
+
+int get_histogram(float val)
+{
+	float clamped = clamp(val, params.min_luminance, params.max_luminance);
+	float loc = (clamped - params.min_luminance) / (params.max_luminance - params.min_luminance);
+	int idx = int(clamp(floor(loc * 256), 0, 255.0));
+	return idx;
+}
+
+void main()
+{
+	const uint local_id = gl_LocalInvocationIndex;
+	const ivec2 global_id = ivec2(gl_GlobalInvocationID.xy);
+	const uvec2 image_size = imageSize(luminance);
+
+	// initialize local shared memory
+	idx_per_thread[local_id] = 0;
+
+	barrier();
+
+	// calculate sum
+	if(global_id.x < image_size.x && global_id.y < image_size.y)
+	{
+		vec2 uv = vec2(float(global_id.x) / float(image_size.x - 1), float(global_id.y) / float(image_size.y - 1)) - vec2(0.5, 0.5);
+		float luminance_val = imageLoad(luminance, global_id).r;
+		
+		float weight = exp(-10 * uv.x * uv.x) * exp(-10 * uv.y * uv.y) + 0.05;
+
+		float weighted_luminance = weight * luminance_val;
+		atomicAdd(idx_per_thread[get_histogram(weighted_luminance)], 1);
+	}
+
+	barrier();
+
+	atomicAdd(medium_buffer.histogram[local_id], idx_per_thread[local_id]);
+}

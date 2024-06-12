@@ -1,0 +1,29 @@
+{
+	"dependencies": [
+		"assimp",
+		"glm",
+		"glfw3",
+		{
+			"name": "imgui",
+			"features": [
+				"freetype",
+				"sdl2-binding",
+				"vulkan-binding",
+				"glfw-binding"
+			]
+		},
+		"stb",
+		"tinygltf",
+		"tinyobjloader",
+		"vulkan",
+		"vulkan-headers",
+		"vulkan-memory-allocator",
+		{
+			"name": "sdl2",
+			"default-features": false,
+			"features": [
+				"vulkan"
+			]
+		}
+	]
+}

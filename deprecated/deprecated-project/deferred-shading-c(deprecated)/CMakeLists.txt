@@ -1,0 +1,9 @@
+aux_source_directory(src deferred_shading_src)
+add_executable(deferred_shading_c_deprecated ${deferred_shading_src})
+target_link_libraries(deferred_shading_c_deprecated PRIVATE vklib)
+target_include_directories(deferred_shading_c_deprecated PRIVATE ./)
+
+compile_shader(deferred_shading_c_deprecated shaders/gbuffer.vert)
+compile_shader(deferred_shading_c_deprecated shaders/gbuffer.frag)
+compile_shader(deferred_shading_c_deprecated shaders/composite.vert)
+compile_shader(deferred_shading_c_deprecated shaders/composite.frag)

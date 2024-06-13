@@ -140,12 +140,12 @@ void Shadow_pipeline::create(const App_environment& env)
 
 		auto rasterization_state = vk::PipelineRasterizationStateCreateInfo()
 									   .setPolygonMode(vk::PolygonMode::eFill)
-									   .setCullMode(vk::CullModeFlagBits::eBack)
+									   .setCullMode(vk::CullModeFlagBits::eFront)
 									   .setFrontFace(vk::FrontFace::eCounterClockwise)
 									   .setLineWidth(1)
 									   .setDepthBiasEnable(true)
-									   .setDepthBiasConstantFactor(1.5)
-									   .setDepthBiasSlopeFactor(1.75);
+									   .setDepthBiasConstantFactor(-0.25)
+									   .setDepthBiasSlopeFactor(-1.75);
 		create_info.setPRasterizationState(&rasterization_state);
 
 		// Multisample State

@@ -1,8 +1,9 @@
-#include "application.hpp"
+#include "render-params.hpp"
+
 #include <memory_resource>
 #include <stack>
 
-std::tuple<uint32_t, std::array<glm::vec3, 8>> get_convex(const std::array<glm::vec3, 8>& input)
+static std::tuple<uint32_t, std::array<glm::vec3, 8>> get_convex(const std::array<glm::vec3, 8>& input)
 {
 	struct Point
 	{
@@ -70,7 +71,7 @@ std::tuple<uint32_t, std::array<glm::vec3, 8>> get_convex(const std::array<glm::
 	return {convex_count, output};
 }
 
-App_render_state::Draw_parameters App_render_state::get_draw_parameters(const App_swapchain& swapchain) const
+Render_params::Draw_parameters Render_params::get_draw_parameters(const Environment& env) const
 {
 	Draw_parameters out_params;
 
@@ -78,7 +79,7 @@ App_render_state::Draw_parameters App_render_state::get_draw_parameters(const Ap
 
 	// Gbuffer View Paramters
 	{
-		const auto aspect = (float)swapchain.extent.width / swapchain.extent.height, fov_y = glm::radians<float>(fov);
+		const auto aspect = (float)env.swapchain.extent.width / env.swapchain.extent.height, fov_y = glm::radians<float>(fov);
 
 		const glm::mat4 view = camera_controller.view_matrix();
 		gbuffer_projection   = glm::perspective<float>(fov_y, aspect, near, far);
@@ -198,8 +199,10 @@ App_render_state::Draw_parameters App_render_state::get_draw_parameters(const Ap
 
 		std::tie(out_params.shadow_transformations[0], out_params.shadow_frustums[0])
 			= calc_shadow_mat(0, out_params.shadow_div_1, shadow_near[0], shadow_far[0]);
+
 		std::tie(out_params.shadow_transformations[1], out_params.shadow_frustums[1])
 			= calc_shadow_mat(out_params.shadow_div_1, out_params.shadow_div_2, shadow_near[1], shadow_far[1]);
+
 		std::tie(out_params.shadow_transformations[2], out_params.shadow_frustums[2])
 			= calc_shadow_mat(out_params.shadow_div_2, 1, shadow_near[2], shadow_far[2]);
 

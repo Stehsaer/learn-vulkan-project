@@ -1,4 +1,5 @@
-#include "app-render.hpp"
+#include "pipeline.hpp"
+
 #include "binary-resource.hpp"
 
 #define GET_SHADER_MODULE(name) Shader_module(env.device, binary_resource::name##_span)
@@ -8,14 +9,14 @@
 vk::ClearValue Shadow_pipeline::clear_value = vk::ClearDepthStencilValue(1.0, 0);
 
 // Create Shadow Pass Pipeline
-void Shadow_pipeline::create(const App_environment& env)
+void Shadow_pipeline::create(const Environment& env)
 {
 	//* Render Pass
 	{
 		const auto attachment_description = vk::AttachmentDescription()
 												.setInitialLayout(vk::ImageLayout::eUndefined)
 												.setFinalLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-												.setFormat(app_image_formats::shadow_depth_format)
+												.setFormat(shadow_map_format)
 												.setLoadOp(vk::AttachmentLoadOp::eClear)
 												.setStoreOp(vk::AttachmentStoreOp::eStore)
 												.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
@@ -84,16 +85,9 @@ void Shadow_pipeline::create(const App_environment& env)
 		std::array<vk::PushConstantRange, 1> push_constant_range;
 
 		// layout(push_constant) uniform Model @ VERT
-		push_constant_range[0]
-			.setOffset(0)
-			.setSize(sizeof(Model_matrix))
-			.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+		push_constant_range[0].setOffset(0).setSize(sizeof(Model_matrix)).setStageFlags(vk::ShaderStageFlagBits::eVertex);
 
-		pipeline_layout = Pipeline_layout(
-			env.device,
-			{descriptor_set_layout_shadow_matrix, descriptor_set_layout_texture},
-			push_constant_range
-		);
+		pipeline_layout = Pipeline_layout(env.device, {descriptor_set_layout_shadow_matrix, descriptor_set_layout_texture}, push_constant_range);
 	}
 
 	//* Graphics Pipeline
@@ -103,34 +97,21 @@ void Shadow_pipeline::create(const App_environment& env)
 		// Shaders
 		const Shader_module vert_shader = GET_SHADER_MODULE(shadow_vert), frag_shader = GET_SHADER_MODULE(shadow_frag);
 
-		auto shader_module_infos = std::to_array(
-			{vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex),
-			 frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
-		);
+		auto shader_module_infos
+			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
 		create_info.setStages(shader_module_infos);
 
 		std::array<vk::VertexInputAttributeDescription, 2> attributes;
-		attributes[0]
-			.setBinding(0)
-			.setFormat(vk::Format::eR32G32B32Sfloat)
-			.setLocation(0)
-			.setOffset(offsetof(io::mesh::gltf::vertex, position));
-		attributes[1]
-			.setBinding(0)
-			.setFormat(vk::Format::eR32G32Sfloat)
-			.setLocation(1)
-			.setOffset(offsetof(io::mesh::gltf::vertex, uv));
+		attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(offsetof(io::mesh::gltf::vertex, position));
+		attributes[1].setBinding(0).setFormat(vk::Format::eR32G32Sfloat).setLocation(1).setOffset(offsetof(io::mesh::gltf::vertex, uv));
 
 		std::array<vk::VertexInputBindingDescription, 1> bindings;
 		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(io::mesh::gltf::vertex));
 
-		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
-									  .setVertexAttributeDescriptions(attributes)
-									  .setVertexBindingDescriptions(bindings);
+		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo().setVertexAttributeDescriptions(attributes).setVertexBindingDescriptions(bindings);
 		create_info.setPVertexInputState(&vertex_input_state);
 
-		auto input_assembly_info
-			= vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleList);
+		auto input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleList);
 		create_info.setPInputAssemblyState(&input_assembly_info);
 
 		auto viewports      = std::to_array({utility::flip_viewport(vk::Viewport(0, 0, 1024, 1024, 0.0, 1.0))});
@@ -144,20 +125,17 @@ void Shadow_pipeline::create(const App_environment& env)
 									   .setFrontFace(vk::FrontFace::eCounterClockwise)
 									   .setLineWidth(1)
 									   .setDepthBiasEnable(true)
-									   .setDepthBiasConstantFactor(-0.25)
+									   .setDepthBiasConstantFactor(-1.25)
 									   .setDepthBiasSlopeFactor(-1.75);
 		create_info.setPRasterizationState(&rasterization_state);
 
 		// Multisample State
-		auto multisample_state
-			= vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
+		auto multisample_state = vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
 		create_info.setPMultisampleState(&multisample_state);
 
 		// Depth Stencil State
-		auto depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo()
-									   .setDepthTestEnable(true)
-									   .setDepthWriteEnable(true)
-									   .setDepthCompareOp(vk::CompareOp::eLess);
+		auto depth_stencil_state
+			= vk::PipelineDepthStencilStateCreateInfo().setDepthTestEnable(true).setDepthWriteEnable(true).setDepthCompareOp(vk::CompareOp::eLess);
 		create_info.setPDepthStencilState(&depth_stencil_state);
 
 		// Dynamic State
@@ -171,9 +149,7 @@ void Shadow_pipeline::create(const App_environment& env)
 
 		pipeline = Graphics_pipeline(env.device, create_info);
 
-		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone)
-			.setDepthBiasConstantFactor(1.5)
-			.setDepthBiasSlopeFactor(1.75);
+		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone).setDepthBiasConstantFactor(1.5).setDepthBiasSlopeFactor(1.75);
 		double_sided_pipeline = Graphics_pipeline(env.device, create_info);
 	}
 }
@@ -190,7 +166,7 @@ std::array<vk::ClearValue, 5> Gbuffer_pipeline::clear_values
 	   vk::ClearDepthStencilValue(1.0, 0)};
 
 // Create Gbuffer Pipeline
-void Gbuffer_pipeline::create(const App_environment& env, const App_swapchain& swapchain)
+void Gbuffer_pipeline::create(const Environment& env)
 {
 	//* Render Pass
 	{
@@ -204,7 +180,9 @@ void Gbuffer_pipeline::create(const App_environment& env, const App_swapchain& s
 				.setLoadOp(vk::AttachmentLoadOp::eClear)
 				.setStoreOp(vk::AttachmentStoreOp::eStore)
 				.setSamples(vk::SampleCountFlagBits::e1)
-				.setFormat(formats[i]);
+				.setFormat(formats[i])
+				.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+				.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare);
 
 		const std::array<vk::AttachmentReference, 4> color_attachment_reference({
 			{0, vk::ImageLayout::eColorAttachmentOptimal},
@@ -317,13 +295,9 @@ void Gbuffer_pipeline::create(const App_environment& env, const App_swapchain& s
 		std::array<vk::PushConstantRange, 1> push_constant_range;
 
 		// layout(push_constant) uniform Model @ VERT
-		push_constant_range[0]
-			.setOffset(0)
-			.setSize(sizeof(Model_matrix))
-			.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+		push_constant_range[0].setOffset(0).setSize(sizeof(Model_matrix)).setStageFlags(vk::ShaderStageFlagBits::eVertex);
 
-		auto descriptor_set_layouts
-			= Descriptor_set_layout::to_array({descriptor_set_layout_camera, descriptor_set_layout_texture});
+		auto descriptor_set_layouts = Descriptor_set_layout::to_array({descriptor_set_layout_camera, descriptor_set_layout_texture});
 
 		pipeline_layout = Pipeline_layout(env.device, descriptor_set_layouts, push_constant_range);
 	}
@@ -333,60 +307,36 @@ void Gbuffer_pipeline::create(const App_environment& env, const App_swapchain& s
 		vk::GraphicsPipelineCreateInfo create_info;
 
 		// Shaders
-		const Shader_module vert_shader = GET_SHADER_MODULE(gbuffer_vert), frag_shader
-																		   = GET_SHADER_MODULE(gbuffer_frag);
+		const Shader_module vert_shader = GET_SHADER_MODULE(gbuffer_vert), frag_shader = GET_SHADER_MODULE(gbuffer_frag);
 
-		auto shader_module_infos = std::to_array(
-			{vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex),
-			 frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
-		);
+		auto shader_module_infos
+			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
 		create_info.setStages(shader_module_infos);
 
 		// Vertex Input State
 
 		std::array<vk::VertexInputAttributeDescription, 4> attributes;
 		{
-			attributes[0]
-				.setBinding(0)
-				.setFormat(vk::Format::eR32G32B32Sfloat)
-				.setLocation(0)
-				.setOffset(offsetof(io::mesh::gltf::vertex, position));
-			attributes[1]
-				.setBinding(0)
-				.setFormat(vk::Format::eR32G32B32Sfloat)
-				.setLocation(1)
-				.setOffset(offsetof(io::mesh::gltf::vertex, normal));
-			attributes[2]
-				.setBinding(0)
-				.setFormat(vk::Format::eR32G32Sfloat)
-				.setLocation(2)
-				.setOffset(offsetof(io::mesh::gltf::vertex, uv));
-			attributes[3]
-				.setBinding(0)
-				.setFormat(vk::Format::eR32G32B32Sfloat)
-				.setLocation(3)
-				.setOffset(offsetof(io::mesh::gltf::vertex, tangent));
+			attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(offsetof(io::mesh::gltf::vertex, position));
+			attributes[1].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(1).setOffset(offsetof(io::mesh::gltf::vertex, normal));
+			attributes[2].setBinding(0).setFormat(vk::Format::eR32G32Sfloat).setLocation(2).setOffset(offsetof(io::mesh::gltf::vertex, uv));
+			attributes[3].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(3).setOffset(offsetof(io::mesh::gltf::vertex, tangent));
 		}
 
 		std::array<vk::VertexInputBindingDescription, 1> bindings;
 
 		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(io::mesh::gltf::vertex));
 
-		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
-									  .setVertexAttributeDescriptions(attributes)
-									  .setVertexBindingDescriptions(bindings);
+		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo().setVertexAttributeDescriptions(attributes).setVertexBindingDescriptions(bindings);
 		create_info.setPVertexInputState(&vertex_input_state);
 
 		// Input Assembly State
-		auto input_assembly_info
-			= vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleList);
+		auto input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleList);
 		create_info.setPInputAssemblyState(&input_assembly_info);
 
 		// Viewport State
-		auto viewports = std::to_array(
-			{utility::flip_viewport(vk::Viewport(0, 0, swapchain.extent.width, swapchain.extent.height, 0.0, 1.0))}
-		);
-		auto scissors = std::to_array({vk::Rect2D({0, 0}, swapchain.extent)});
+		auto viewports = std::to_array({utility::flip_viewport(vk::Viewport(0, 0, env.swapchain.extent.width, env.swapchain.extent.height, 0.0, 1.0))});
+		auto scissors  = std::to_array({vk::Rect2D({0, 0}, env.swapchain.extent)});
 
 		auto viewport_state = vk::PipelineViewportStateCreateInfo().setViewports(viewports).setScissors(scissors);
 		create_info.setPViewportState(&viewport_state);
@@ -400,15 +350,12 @@ void Gbuffer_pipeline::create(const App_environment& env, const App_swapchain& s
 		create_info.setPRasterizationState(&rasterization_state);
 
 		// Multisample State
-		auto multisample_state
-			= vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
+		auto multisample_state = vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
 		create_info.setPMultisampleState(&multisample_state);
 
 		// Depth Stencil State
-		auto depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo()
-									   .setDepthTestEnable(true)
-									   .setDepthWriteEnable(true)
-									   .setDepthCompareOp(vk::CompareOp::eLess);
+		auto depth_stencil_state
+			= vk::PipelineDepthStencilStateCreateInfo().setDepthTestEnable(true).setDepthWriteEnable(true).setDepthCompareOp(vk::CompareOp::eLess);
 		create_info.setPDepthStencilState(&depth_stencil_state);
 
 		// Color Blend State
@@ -419,8 +366,7 @@ void Gbuffer_pipeline::create(const App_environment& env, const App_swapchain& s
 			color_blend_attachment_states.begin(),
 			color_blend_attachment_states.end(),
 			vk::PipelineColorBlendAttachmentState().setBlendEnable(false).setColorWriteMask(
-				vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB
-				| vk::ColorComponentFlagBits::eA
+				vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
 			)
 		);
 
@@ -449,11 +395,10 @@ void Gbuffer_pipeline::create(const App_environment& env, const App_swapchain& s
 
 #pragma region "Lighting Pipeline"
 
-std::array<vk::ClearValue, 2> Lighting_pipeline::clear_value
-	= {vk::ClearColorValue(0, 0, 0, 0), vk::ClearColorValue(0, 0, 0, 0)};
+std::array<vk::ClearValue, 2> Lighting_pipeline::clear_value = {vk::ClearColorValue(0, 0, 0, 0), vk::ClearColorValue(0, 0, 0, 0)};
 
 // Create Lighting Pipeline
-void Lighting_pipeline::create(const App_environment& env, const App_swapchain& swapchain)
+void Lighting_pipeline::create(const Environment& env)
 {
 	//* Render Pass
 	{
@@ -544,11 +489,7 @@ void Lighting_pipeline::create(const App_environment& env, const App_swapchain& 
 		bindings[4].setDescriptorCount(csm_count);
 
 		// Uniform buffers
-		bindings[6]
-			.setBinding(6)
-			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-			.setDescriptorCount(1)
-			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
+		bindings[6].setBinding(6).setDescriptorType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(1).setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
 		gbuffer_input_layout = Descriptor_set_layout(env.device, bindings);
 	}
@@ -572,10 +513,8 @@ void Lighting_pipeline::create(const App_environment& env, const App_swapchain& 
 		// Shaders
 		const Shader_module vert_shader = GET_SHADER_MODULE(quad_vert), frag_shader = GET_SHADER_MODULE(lighting_frag);
 
-		auto shader_module_infos = std::to_array(
-			{vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex),
-			 frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
-		);
+		auto shader_module_infos
+			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
 		create_info.setStages(shader_module_infos);
 
 		// Vertex Input State
@@ -583,15 +522,12 @@ void Lighting_pipeline::create(const App_environment& env, const App_swapchain& 
 		create_info.setPVertexInputState(&vertex_input_state);
 
 		// Input Assembly State
-		auto input_assembly_info
-			= vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleStrip);
+		auto input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleStrip);
 		create_info.setPInputAssemblyState(&input_assembly_info);
 
 		// Viewport State
-		auto viewports
-			= std::to_array({utility::flip_viewport(vk::Viewport(0, 0, swapchain.extent.width, swapchain.extent.height))
-			});
-		auto scissors = std::to_array({vk::Rect2D({0, 0}, swapchain.extent)});
+		auto viewports = std::to_array({utility::flip_viewport(vk::Viewport(0, 0, env.swapchain.extent.width, env.swapchain.extent.height))});
+		auto scissors  = std::to_array({vk::Rect2D({0, 0}, env.swapchain.extent)});
 
 		auto viewport_state = vk::PipelineViewportStateCreateInfo().setViewports(viewports).setScissors(scissors);
 		create_info.setPViewportState(&viewport_state);
@@ -605,8 +541,7 @@ void Lighting_pipeline::create(const App_environment& env, const App_swapchain& 
 		create_info.setPRasterizationState(&rasterization_state);
 
 		// Multisample State
-		auto multisample_state
-			= vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
+		auto multisample_state = vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
 		create_info.setPMultisampleState(&multisample_state);
 
 		// Depth Stencil State
@@ -618,8 +553,7 @@ void Lighting_pipeline::create(const App_environment& env, const App_swapchain& 
 
 		vk::PipelineColorBlendAttachmentState attachment1_blend;
 		attachment1_blend.setBlendEnable(false).setColorWriteMask(
-			vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB
-			| vk::ColorComponentFlagBits::eA
+			vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
 		);
 
 		vk::PipelineColorBlendAttachmentState attachment2_blend;
@@ -659,7 +593,7 @@ void Lighting_pipeline::create(const App_environment& env, const App_swapchain& 
 #pragma region "Auto Exposure Pipeline"
 
 // Create Auto Exposure Pipeline
-void Auto_exposure_compute_pipeline::create(const App_environment& env)
+void Auto_exposure_compute_pipeline::create(const Environment& env)
 {
 	// Descriptor Set Layout
 	{
@@ -680,14 +614,9 @@ void Auto_exposure_compute_pipeline::create(const App_environment& env)
 
 	// Pipeline Layout
 	{
-		const vk::PushConstantRange luminance_push_constant_range(
-			vk::ShaderStageFlagBits::eCompute,
-			0,
-			sizeof(Luminance_params)
-		);
+		const vk::PushConstantRange luminance_push_constant_range(vk::ShaderStageFlagBits::eCompute, 0, sizeof(Luminance_params));
 
-		luminance_avg_pipeline_layout
-			= Pipeline_layout(env.device, {luminance_avg_descriptor_set_layout}, {luminance_push_constant_range});
+		luminance_avg_pipeline_layout = Pipeline_layout(env.device, {luminance_avg_descriptor_set_layout}, {luminance_push_constant_range});
 
 		const vk::PushConstantRange lerp_push_constant_range(vk::ShaderStageFlagBits::eCompute, 0, sizeof(Lerp_params));
 
@@ -696,20 +625,12 @@ void Auto_exposure_compute_pipeline::create(const App_environment& env)
 
 	// Pipeline
 	{
-		const auto luminance_avg_shader = GET_SHADER_MODULE(luminance_comp), exposure_lerp_shader
-																			 = GET_SHADER_MODULE(exposure_lerp_comp);
+		const auto luminance_avg_shader = GET_SHADER_MODULE(luminance_comp), exposure_lerp_shader = GET_SHADER_MODULE(exposure_lerp_comp);
 
-		luminance_avg_pipeline = Compute_pipeline(
-			env.device,
-			luminance_avg_pipeline_layout,
-			luminance_avg_shader.stage_info(vk::ShaderStageFlagBits::eCompute)
-		);
+		luminance_avg_pipeline
+			= Compute_pipeline(env.device, luminance_avg_pipeline_layout, luminance_avg_shader.stage_info(vk::ShaderStageFlagBits::eCompute));
 
-		lerp_pipeline = Compute_pipeline(
-			env.device,
-			lerp_pipeline_layout,
-			exposure_lerp_shader.stage_info(vk::ShaderStageFlagBits::eCompute)
-		);
+		lerp_pipeline = Compute_pipeline(env.device, lerp_pipeline_layout, exposure_lerp_shader.stage_info(vk::ShaderStageFlagBits::eCompute));
 	}
 }
 
@@ -717,9 +638,7 @@ void Auto_exposure_compute_pipeline::create(const App_environment& env)
 
 #pragma region "Bloom Pipeline"
 
-#pragma endregion
-
-void Bloom_pipeline::create(const App_environment& env)
+void Bloom_pipeline::create(const Environment& env)
 {
 	bloom_filter_descriptor_set_layout = [=]
 	{
@@ -788,19 +707,21 @@ void Bloom_pipeline::create(const App_environment& env)
 	}();
 }
 
+#pragma endregion
+
 #pragma region "Composite Pipeline"
 
 vk::ClearValue Composite_pipeline::clear_value = vk::ClearColorValue(0, 0, 0, 0);
 
 // Create Composite Pipeline
-void Composite_pipeline::create(const App_environment& env, const App_swapchain& swapchain)
+void Composite_pipeline::create(const Environment& env)
 {
 	//* Render Pass
 	{
 		const auto attachment = vk::AttachmentDescription()
 									.setInitialLayout(vk::ImageLayout::eUndefined)
 									.setFinalLayout(vk::ImageLayout::eColorAttachmentOptimal)
-									.setFormat(swapchain.surface_format.format)
+									.setFormat(env.swapchain.surface_format.format)
 									.setLoadOp(vk::AttachmentLoadOp::eClear)
 									.setStoreOp(vk::AttachmentStoreOp::eStore)
 									.setSamples(vk::SampleCountFlagBits::e1);
@@ -853,17 +774,9 @@ void Composite_pipeline::create(const App_environment& env, const App_swapchain&
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
 		// Parameters
-		bindings[1]
-			.setBinding(1)
-			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-			.setDescriptorCount(1)
-			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
+		bindings[1].setBinding(1).setDescriptorType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(1).setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
-		bindings[2]
-			.setBinding(2)
-			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-			.setDescriptorCount(1)
-			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
+		bindings[2].setBinding(2).setDescriptorType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(1).setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
 		bindings[3]
 			.setBinding(3)
@@ -884,10 +797,8 @@ void Composite_pipeline::create(const App_environment& env, const App_swapchain&
 		// Shaders
 		const Shader_module vert_shader = GET_SHADER_MODULE(quad_vert), frag_shader = GET_SHADER_MODULE(composite_frag);
 
-		auto shader_module_infos = std::to_array(
-			{vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex),
-			 frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
-		);
+		auto shader_module_infos
+			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
 		create_info.setStages(shader_module_infos);
 
 		// Vertex Input State
@@ -895,15 +806,12 @@ void Composite_pipeline::create(const App_environment& env, const App_swapchain&
 		create_info.setPVertexInputState(&vertex_input_state);
 
 		// Input Assembly State
-		auto input_assembly_info
-			= vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleStrip);
+		auto input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleStrip);
 		create_info.setPInputAssemblyState(&input_assembly_info);
 
 		// Viewport State
-		auto viewports
-			= std::to_array({utility::flip_viewport(vk::Viewport(0, 0, swapchain.extent.width, swapchain.extent.height))
-			});
-		auto scissors = std::to_array({vk::Rect2D({0, 0}, swapchain.extent)});
+		auto viewports = std::to_array({utility::flip_viewport(vk::Viewport(0, 0, env.swapchain.extent.width, env.swapchain.extent.height))});
+		auto scissors  = std::to_array({vk::Rect2D({0, 0}, env.swapchain.extent)});
 
 		auto viewport_state = vk::PipelineViewportStateCreateInfo().setViewports(viewports).setScissors(scissors);
 		create_info.setPViewportState(&viewport_state);
@@ -917,8 +825,7 @@ void Composite_pipeline::create(const App_environment& env, const App_swapchain&
 		create_info.setPRasterizationState(&rasterization_state);
 
 		// Multisample State
-		auto multisample_state
-			= vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
+		auto multisample_state = vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
 		create_info.setPMultisampleState(&multisample_state);
 
 		// Depth Stencil State
@@ -930,8 +837,7 @@ void Composite_pipeline::create(const App_environment& env, const App_swapchain&
 
 		vk::PipelineColorBlendAttachmentState attachment1_blend;
 		attachment1_blend.setBlendEnable(false).setColorWriteMask(
-			vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB
-			| vk::ColorComponentFlagBits::eA
+			vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
 		);
 
 		auto attachment_states = std::to_array({attachment1_blend});
@@ -954,12 +860,12 @@ void Composite_pipeline::create(const App_environment& env, const App_swapchain&
 
 #pragma endregion
 
-void Main_pipeline::create(const App_environment& env, const App_swapchain& swapchain)
+void Pipeline_set::create(const Environment& env)
 {
 	shadow_pipeline.create(env);
-	gbuffer_pipeline.create(env, swapchain);
-	lighting_pipeline.create(env, swapchain);
+	gbuffer_pipeline.create(env);
+	lighting_pipeline.create(env);
 	auto_exposure_pipeline.create(env);
 	bloom_pipeline.create(env);
-	composite_pipeline.create(env, swapchain);
+	composite_pipeline.create(env);
 }

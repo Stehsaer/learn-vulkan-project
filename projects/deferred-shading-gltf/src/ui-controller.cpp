@@ -1,7 +1,7 @@
-#include "application.hpp"
 #include "binary-resource.hpp"
+#include "controller.hpp"
 
-void Ui_controller::init_imgui(const App_environment& env, const App_swapchain& swapchain)
+void Ui_controller::init_imgui(const Environment& env)
 {
 	// Descriptor Pool
 	std::array<vk::DescriptorPoolSize, 1> pool_sizes;
@@ -12,7 +12,7 @@ void Ui_controller::init_imgui(const App_environment& env, const App_swapchain& 
 	{
 		std::array<vk::AttachmentDescription, 1> attachment_descriptions;
 		attachment_descriptions[0]
-			.setFormat(swapchain.surface_format.format)
+			.setFormat(env.swapchain.surface_format.format)
 			.setInitialLayout(vk::ImageLayout::eColorAttachmentOptimal)
 			.setFinalLayout(vk::ImageLayout::ePresentSrcKHR)
 			.setLoadOp(vk::AttachmentLoadOp::eLoad)
@@ -42,14 +42,12 @@ void Ui_controller::init_imgui(const App_environment& env, const App_swapchain& 
 
 		imgui_renderpass = Render_pass(env.device, attachment_descriptions, subpasses, dependencies);
 
-		attachment_descriptions[0]
-			.setInitialLayout(vk::ImageLayout::eUndefined)
-			.setLoadOp(vk::AttachmentLoadOp::eClear);
+		attachment_descriptions[0].setInitialLayout(vk::ImageLayout::eUndefined).setLoadOp(vk::AttachmentLoadOp::eClear);
 		imgui_unique_renderpass = Render_pass(env.device, attachment_descriptions, subpasses, dependencies);
 	}
 
 	// Framebuffers
-	create_imgui_rt(env, swapchain);
+	create_imgui_rt(env);
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -69,8 +67,8 @@ void Ui_controller::init_imgui(const App_environment& env, const App_swapchain& 
 	init_info.PipelineCache             = nullptr;
 	init_info.DescriptorPool            = imgui_descriptor_pool.to<VkDescriptorPool>();
 	init_info.Subpass                   = 0;
-	init_info.MinImageCount             = swapchain.image_count;
-	init_info.ImageCount                = swapchain.image_count;
+	init_info.MinImageCount             = env.swapchain.image_count;
+	init_info.ImageCount                = env.swapchain.image_count;
 	init_info.MSAASamples               = VK_SAMPLE_COUNT_1_BIT;
 	init_info.Allocator                 = nullptr;
 
@@ -85,10 +83,7 @@ void Ui_controller::init_imgui(const App_environment& env, const App_swapchain& 
 
 	if (scale > 4) throw General_exception(std::format("Abnormal Content DPI: {:.1f}dpi, {:.1f}x scale", ddpi, scale));
 
-	std::vector<uint8_t> copied_font_data(
-		binary_resource::roboto_font_data,
-		binary_resource::roboto_font_data + binary_resource::roboto_font_size
-	);
+	std::vector<uint8_t> copied_font_data(binary_resource::roboto_font_data, binary_resource::roboto_font_data + binary_resource::roboto_font_size);
 
 	ImFontConfig font_cfg;
 	font_cfg.FontDataOwnedByAtlas = false;
@@ -98,14 +93,12 @@ void Ui_controller::init_imgui(const App_environment& env, const App_swapchain& 
 	ImGui::GetStyle().ScaleAllSizes(scale);
 }
 
-void Ui_controller::create_imgui_rt(const App_environment& env, const App_swapchain& swapchain)
+void Ui_controller::create_imgui_rt(const Environment& env)
 {
 	imgui_framebuffers.clear();
-	for (auto i : Range(swapchain.image_count))
+	for (auto i : Range(env.swapchain.image_count))
 	{
-		imgui_framebuffers.emplace_back(
-			Framebuffer(env.device, imgui_renderpass, {swapchain.image_views[i]}, vk::Extent3D(swapchain.extent, 1))
-		);
+		imgui_framebuffers.emplace_back(Framebuffer(env.device, imgui_renderpass, {env.swapchain.image_views[i]}, vk::Extent3D(env.swapchain.extent, 1)));
 	}
 }
 
@@ -116,7 +109,7 @@ void Ui_controller::imgui_new_frame()
 	ImGui::NewFrame();
 }
 
-void Ui_controller::imgui_draw(const App_environment& env, const App_swapchain& swapchain, uint32_t idx, bool unique)
+void Ui_controller::imgui_draw(const Environment& env, uint32_t idx, bool unique)
 {
 	const auto& command_buffer = env.command_buffer[idx];
 
@@ -125,7 +118,7 @@ void Ui_controller::imgui_draw(const App_environment& env, const App_swapchain& 
 	command_buffer.begin_render_pass(
 		unique ? imgui_unique_renderpass : imgui_renderpass,
 		imgui_framebuffers[idx],
-		vk::Rect2D({0, 0}, {swapchain.extent.width, swapchain.extent.height}),
+		vk::Rect2D({0, 0}, {env.swapchain.extent.width, env.swapchain.extent.height}),
 		std::span(&clear, unique),
 		vk::SubpassContents::eInline
 	);

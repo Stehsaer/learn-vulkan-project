@@ -1,4 +1,4 @@
-#include "application.hpp"
+#include "controller.hpp"
 
 void Camera_controller::update(ImGuiIO& io)
 {
@@ -23,8 +23,7 @@ void Camera_controller::update(ImGuiIO& io)
 		const glm::vec3 right = rot_mat * glm::vec4(0.0, 0.0, 1.0, 0.0);
 
 		const float     distance = exp2(log_distance);
-		const glm::vec3 dpos     = right * distance * io.MouseDelta.x * shift_x_sensitivity
-			+ up * distance * io.MouseDelta.y * shift_y_sensitivity;
+		const glm::vec3 dpos     = right * distance * io.MouseDelta.x * shift_x_sensitivity + up * distance * io.MouseDelta.y * shift_y_sensitivity;
 
 		eye_center += dpos;
 
@@ -39,11 +38,7 @@ void Camera_controller::update(ImGuiIO& io)
 
 glm::mat4 Camera_controller::rotation_matrix() const
 {
-	return glm::rotate(
-		glm::rotate(glm::mat4(1.0), glm::radians(yaw), glm::vec3(0.0, 1.0, 0.0)),
-		glm::radians(pitch),
-		glm::vec3(0.0, 0.0, 1.0)
-	);
+	return glm::rotate(glm::rotate(glm::mat4(1.0), glm::radians(yaw), glm::vec3(0.0, 1.0, 0.0)), glm::radians(pitch), glm::vec3(0.0, 0.0, 1.0));
 }
 
 glm::mat4 Camera_controller::view_matrix() const

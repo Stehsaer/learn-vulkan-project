@@ -1,7 +1,7 @@
-#include "app-hdri.hpp"
+#include "hdri.hpp"
 #include "binary-resource.hpp"
 
-void Hdri_resource::create_sampler(const App_environment& env)
+void Hdri_resource::create_sampler(const Environment& env)
 {
 	bilinear_sampler = [=]
 	{
@@ -58,7 +58,7 @@ void Hdri_resource::create_sampler(const App_environment& env)
 	}();
 }
 
-void Hdri_resource::generate_environment(const App_environment& env, const Image_view& input_image, uint32_t resolution)
+void Hdri_resource::generate_environment(const Environment& env, const Image_view& input_image, uint32_t resolution)
 {
 	const Render_pass render_pass = [=]
 	{
@@ -459,7 +459,7 @@ void Hdri_resource::generate_descriptors(const Device& device, const Descriptor_
 	device->updateDescriptorSets({write_environment_set, write_diffuse_set, write_lut_set}, {});
 }
 
-void Hdri_resource::generate_diffuse(const App_environment& env, uint32_t resolution)
+void Hdri_resource::generate_diffuse(const Environment& env, uint32_t resolution)
 {
 	const Render_pass render_pass = [=]
 	{
@@ -725,7 +725,7 @@ void Hdri_resource::generate_diffuse(const App_environment& env, uint32_t resolu
 	env.g_queue.waitIdle();
 }
 
-void Hdri_resource::generate_specular(const App_environment& env, uint32_t resolution)
+void Hdri_resource::generate_specular(const Environment& env, uint32_t resolution)
 {
 	struct Gen_params
 	{
@@ -1003,7 +1003,7 @@ void Hdri_resource::generate_specular(const App_environment& env, uint32_t resol
 	env.g_queue.waitIdle();
 }
 
-void Hdri_resource::generate_brdf_lut(const App_environment& env, uint32_t resolution)
+void Hdri_resource::generate_brdf_lut(const Environment& env, uint32_t resolution)
 {
 	const auto descriptor_set_layout = [=]
 	{

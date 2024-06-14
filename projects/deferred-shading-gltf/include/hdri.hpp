@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app-basic.hpp"
+#include "environment.hpp"
 #include <vklib>
 
 constexpr uint32_t environment_layers = 6;
@@ -15,7 +15,7 @@ struct Hdri_resource
 	Descriptor_set  descriptor_set;
 
 	void generate(
-		const App_environment&       env,
+		const Environment&           env,
 		const Image_view&            input_image,
 		uint32_t                     resolution,
 		const Descriptor_set_layout& layout
@@ -46,9 +46,9 @@ struct Hdri_resource
 		glm::mat4 transformation;
 	};
 
-	void create_sampler(const App_environment& env);
-	void generate_environment(const App_environment& env, const Image_view& input_image, uint32_t resolution);
-	void generate_diffuse(const App_environment& env, uint32_t resolution);
-	void generate_specular(const App_environment& env, uint32_t resolution);
-	void generate_brdf_lut(const App_environment& env, uint32_t resolution);
+	void create_sampler(const Environment& env);
+	void generate_environment(const Environment& env, const Image_view& input_image, uint32_t resolution);
+	void generate_diffuse(const Environment& env, uint32_t resolution);
+	void generate_specular(const Environment& env, uint32_t resolution);
+	void generate_brdf_lut(const Environment& env, uint32_t resolution);
 };

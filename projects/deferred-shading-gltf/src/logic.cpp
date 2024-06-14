@@ -1,4 +1,4 @@
-#include "application.hpp"
+#include "logic.hpp"
 #include "binary-resource.hpp"
 #include <filesystem>
 
@@ -33,21 +33,19 @@ std::shared_ptr<Application_logic_base> App_idle_logic::work()
 					continue;
 				}
 
-				if (extension == ".gltf" || extension == ".glb")
-					return std::make_shared<App_load_model_logic>(resource, file_path_str);
+				if (extension == ".gltf" || extension == ".glb") return std::make_shared<App_load_model_logic>(core, file_path_str);
 
-				if (extension == ".hdr") return std::make_shared<App_load_hdri_logic>(resource, file_path_str);
+				if (extension == ".hdr") return std::make_shared<App_load_hdri_logic>(core, file_path_str);
 			}
 
-			if (load_builtin_model)
-				return std::make_shared<App_load_model_logic>(resource, "**built-in--damaged-helmet**");
+			if (load_builtin_model) return std::make_shared<App_load_model_logic>(core, "**built-in--damaged-helmet**");
 
-			if (load_builtin_hdri) return std::make_shared<App_load_hdri_logic>(resource, "**built-in--hdri**");
+			if (load_builtin_hdri) return std::make_shared<App_load_hdri_logic>(core, "**built-in--hdri**");
 		}
 
-		resource->ui_controller.imgui_new_frame();
+		core->ui_controller.imgui_new_frame();
 
-		resource->render_one_frame(
+		core->render_one_frame(
 			[this](uint32_t idx)
 			{
 				draw(idx);
@@ -58,35 +56,30 @@ std::shared_ptr<Application_logic_base> App_idle_logic::work()
 
 void App_idle_logic::draw(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
+	const auto& command_buffer = core->env.command_buffer[idx];
 
 	command_buffer.begin();
 	{
 		ui_logic();
-		resource->ui_controller.imgui_draw(resource->env, resource->swapchain, idx, true);
+		core->ui_controller.imgui_draw(core->env, idx, true);
 	}
 	command_buffer.end();
 }
 
 void App_idle_logic::ui_logic()
 {
-	ImGui::SetNextWindowPos(
-		ImVec2(resource->swapchain.extent.width / 2.0, resource->swapchain.extent.height / 2.0),
-		ImGuiCond_Always,
-		{0.5, 0.5}
-	);
+	ImGui::SetNextWindowPos(ImVec2(core->env.swapchain.extent.width / 2.0, core->env.swapchain.extent.height / 2.0), ImGuiCond_Always, {0.5, 0.5});
 	if (ImGui::Begin(
 			"##Load Window",
 			nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoTitleBar
-				| ImGuiWindowFlags_NoMove
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
 		))
 	{
 		ImGui::Text("Drop File Here to Load!");
 		ImGui::Separator();
 
-		ImGui::BulletText("Model: %s", resource->render_state.model == nullptr ? "Not Loaded" : "Loaded");
-		ImGui::BulletText("HDRI: %s", resource->render_state.hdri == nullptr ? "Not Loaded" : "Loaded");
+		ImGui::BulletText("Model: %s", core->params.model == nullptr ? "Not Loaded" : "Loaded");
+		ImGui::BulletText("HDRI: %s", core->params.hdri == nullptr ? "Not Loaded" : "Loaded");
 
 		ImGui::Separator();
 		if (ImGui::Button("Load Built-in Model")) load_builtin_model = true;
@@ -131,17 +124,16 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 					continue;
 				}
 
-				if (extension == ".gltf" || extension == ".glb")
-					return std::make_shared<App_load_model_logic>(resource, file_path_str);
+				if (extension == ".gltf" || extension == ".glb") return std::make_shared<App_load_model_logic>(core, file_path_str);
 
-				if (extension == ".hdr") return std::make_shared<App_load_hdri_logic>(resource, file_path_str);
+				if (extension == ".hdr") return std::make_shared<App_load_hdri_logic>(core, file_path_str);
 			}
 		}
 
-		resource->ui_controller.imgui_new_frame();
-		resource->render_state.camera_controller.update(ImGui::GetIO());
+		core->ui_controller.imgui_new_frame();
+		core->params.camera_controller.update(ImGui::GetIO());
 
-		resource->render_one_frame(
+		core->render_one_frame(
 			[this](uint32_t idx)
 			{
 				draw(idx);
@@ -152,23 +144,33 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 
 void App_render_logic::draw(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
+	const auto& command_buffer = core->env.command_buffer[idx];
 
-	auto draw_params = resource->render_state.get_draw_parameters(resource->swapchain);
+	auto draw_params = core->params.get_draw_parameters(core->env);
 
-	resource->main_rt.update_uniform(
-		resource->env,
-		idx,
-		draw_params.view_projection,
+	const Gbuffer_pipeline::Camera_uniform gbuffer_camera{draw_params.view_projection};
+
+	Lighting_pipeline::Params lighting_params{
+		glm::inverse(draw_params.view_projection),
 		draw_params.eye_position,
-		draw_params.shadow_transformations,
+		{},
 		draw_params.light_dir,
-		resource->render_state.light_color * resource->render_state.light_intensity,
-		std::pow(2, resource->render_state.exposure_ev),
-		resource->render_state.emissive_brightness,
-		resource->render_state.skybox_brightness,
-		resource->render_state.bloom_intensity
-	);
+		core->params.light_color * core->params.light_intensity,
+		core->params.emissive_brightness,
+		core->params.skybox_brightness
+	};
+
+	std::array<Shadow_pipeline::Shadow_uniform, csm_count> shadow_uniforms;
+
+	for (auto i : Range(csm_count))
+	{
+		lighting_params.shadow[i] = draw_params.shadow_transformations[i];
+		shadow_uniforms[i]        = {draw_params.shadow_transformations[i]};
+	}
+
+	const Composite_pipeline::Exposure_param composite_param{exp2(core->params.exposure_ev), core->params.bloom_intensity};
+
+	core->render_targets[idx].update(core->env, shadow_uniforms, gbuffer_camera, lighting_params, composite_param);
 
 	command_buffer.begin();
 	{
@@ -180,71 +182,67 @@ void App_render_logic::draw(uint32_t idx)
 		draw_composite(idx);
 
 		ui_logic();
-		resource->ui_controller.imgui_draw(resource->env, resource->swapchain, idx, false);
+		core->ui_controller.imgui_draw(core->env, idx, false);
 	}
 	command_buffer.end();
 }
 
-void App_render_logic::draw_shadow(uint32_t idx, const App_render_state::Draw_parameters& draw_params)
+void App_render_logic::draw_shadow(uint32_t idx, const Render_params::Draw_parameters& draw_params)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
+	core->params.shadow_object_count = 0;
 
-	resource->render_state.shadow_cpu_time = 0;
+	const auto& command_buffer = core->env.command_buffer[idx];
+
+	core->params.shadow_cpu_time = 0;
 
 	for (auto csm_idx : Range(csm_count))
 	{
 		// Begin Shadow Renderpass
 		command_buffer.begin_render_pass(
-			resource->main_pipeline.shadow_pipeline.render_pass,
-			resource->main_rt.shadow_rt[idx].shadow_framebuffers[csm_idx],
-			vk::Rect2D({0, 0}, {resource->main_rt.shadow_map_res[csm_idx], resource->main_rt.shadow_map_res[csm_idx]}),
+			core->Pipeline_set.shadow_pipeline.render_pass,
+			core->render_targets[idx].shadow_rt.shadow_framebuffers[csm_idx],
+			vk::Rect2D({0, 0}, {shadow_map_res[csm_idx], shadow_map_res[csm_idx]}),
 			{Shadow_pipeline::clear_value},
 			vk::SubpassContents::eInline
 		);
 
 		// Set Viewport and Scissors
-		command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(
-			0,
-			0,
-			resource->main_rt.shadow_map_res[csm_idx],
-			resource->main_rt.shadow_map_res[csm_idx],
-			0.0,
-			1.0
-		)));
+		command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(0, 0, shadow_map_res[csm_idx], shadow_map_res[csm_idx], 0.0, 1.0)));
 
 		command_buffer.set_scissor({
-			{0,										 0										},
-			{resource->main_rt.shadow_map_res[csm_idx], resource->main_rt.shadow_map_res[csm_idx]}
+			{0,					   0					  },
+			{shadow_map_res[csm_idx], shadow_map_res[csm_idx]}
 		});
 
 		// Bind Matrices
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
-			resource->main_pipeline.shadow_pipeline.pipeline_layout,
+			core->Pipeline_set.shadow_pipeline.pipeline_layout,
 			0,
-			{resource->main_rt.shadow_rt[idx].shadow_matrix_descriptor_set[csm_idx]}
+			{core->render_targets[idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
 		);
 
 		auto bind_descriptor = [&](auto material)
 		{
 			command_buffer.bind_descriptor_sets(
 				vk::PipelineBindPoint::eGraphics,
-				resource->main_pipeline.shadow_pipeline.pipeline_layout,
+				core->Pipeline_set.shadow_pipeline.pipeline_layout,
 				1,
 				{material.albedo_only_descriptor_set}
 			);
 		};
 
-		auto draw_result = resource->model_renderer.render_gltf(
+		auto draw_result = core->model_renderer.render_gltf(
 			command_buffer,
-			*resource->render_state.model,
+			*core->params.model,
 			draw_params.shadow_frustums[csm_idx],
 			{0, 0, 0},
 			-draw_params.light_dir,
-			resource->main_pipeline.shadow_pipeline.pipeline,
-			resource->main_pipeline.shadow_pipeline.double_sided_pipeline,
-			resource->main_pipeline.shadow_pipeline.pipeline_layout,
-			bind_descriptor
+			core->Pipeline_set.shadow_pipeline.pipeline,
+			core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
+			core->Pipeline_set.shadow_pipeline.pipeline_layout,
+			bind_descriptor,
+			core->params.sort_drawcall
 		);
 
 		command_buffer.end_render_pass();
@@ -252,35 +250,33 @@ void App_render_logic::draw_shadow(uint32_t idx, const App_render_state::Draw_pa
 		draw_result.near = std::min((draw_result.near + draw_result.far) / 2.0f - 0.01f, draw_result.near);
 		draw_result.far  = std::max((draw_result.near + draw_result.far) / 2.0f + 0.01f, draw_result.far);
 
-		resource->render_state.shadow_far[csm_idx]  = draw_result.far;
-		resource->render_state.shadow_near[csm_idx] = draw_result.near;
-		resource->render_state.shadow_cpu_time += draw_result.time_consumed;
+		core->params.shadow_far[csm_idx]  = draw_result.far;
+		core->params.shadow_near[csm_idx] = draw_result.near;
+		core->params.shadow_cpu_time += draw_result.time_consumed;
+		core->params.shadow_object_count += core->model_renderer.get_object_count();
 	}
 }
 
-void App_render_logic::draw_gbuffer(uint32_t idx, const App_render_state::Draw_parameters& draw_params)
+void App_render_logic::draw_gbuffer(uint32_t idx, const Render_params::Draw_parameters& draw_params)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
-	const auto  draw_extent    = vk::Rect2D({0, 0}, resource->swapchain.extent);
+	const auto& command_buffer = core->env.command_buffer[idx];
+	const auto  draw_extent    = vk::Rect2D({0, 0}, core->env.swapchain.extent);
 
 	auto set_viewport = [=, this](bool flip)
 	{
 		if (flip)
-			command_buffer.set_viewport(utility::flip_viewport(
-				vk::Viewport(0, 0, resource->swapchain.extent.width, resource->swapchain.extent.height, 0.0, 1.0)
+			command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
 			));
 		else
-			command_buffer.set_viewport(
-				vk::Viewport(0, 0, resource->swapchain.extent.width, resource->swapchain.extent.height, 0.0, 1.0)
-			);
+			command_buffer.set_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0));
 
-		command_buffer.set_scissor(vk::Rect2D({0, 0}, resource->swapchain.extent));
+		command_buffer.set_scissor(vk::Rect2D({0, 0}, core->env.swapchain.extent));
 	};
 
 	// Gbuffer Pass
 	command_buffer.begin_render_pass(
-		resource->main_pipeline.gbuffer_pipeline.render_pass,
-		resource->main_rt.gbuffer_rt[idx].framebuffer,
+		core->Pipeline_set.gbuffer_pipeline.render_pass,
+		core->render_targets[idx].gbuffer_rt.framebuffer,
 		draw_extent,
 		Gbuffer_pipeline::clear_values
 	);
@@ -289,41 +285,39 @@ void App_render_logic::draw_gbuffer(uint32_t idx, const App_render_state::Draw_p
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
-			resource->main_pipeline.gbuffer_pipeline.pipeline_layout,
+			core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
 			0,
-			{resource->main_rt.gbuffer_rt[idx].camera_uniform_descriptor_set}
+			{core->render_targets[idx].gbuffer_rt.camera_uniform_descriptor_set}
 		);
 
 		auto bind_descriptor = [&](auto material)
 		{
-			command_buffer.bind_descriptor_sets(
-				vk::PipelineBindPoint::eGraphics,
-				resource->main_pipeline.gbuffer_pipeline.pipeline_layout,
-				1,
-				{material.descriptor_set}
-			);
+			command_buffer
+				.bind_descriptor_sets(vk::PipelineBindPoint::eGraphics, core->Pipeline_set.gbuffer_pipeline.pipeline_layout, 1, {material.descriptor_set});
 		};
 
-		auto draw_result = resource->model_renderer.render_gltf(
+		auto draw_result = core->model_renderer.render_gltf(
 			command_buffer,
-			*(resource->render_state.model),
+			*(core->params.model),
 			draw_params.gbuffer_frustum,
 			draw_params.eye_position,
 			draw_params.eye_path,
-			resource->main_pipeline.gbuffer_pipeline.pipeline,
-			resource->main_pipeline.gbuffer_pipeline.double_sided_pipeline,
-			resource->main_pipeline.gbuffer_pipeline.pipeline_layout,
-			bind_descriptor
+			core->Pipeline_set.gbuffer_pipeline.pipeline,
+			core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
+			core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+			bind_descriptor,
+			core->params.sort_drawcall
 		);
 		draw_result.far  = std::max(0.02f, draw_result.far);
 		draw_result.near = std::max(0.01f, draw_result.near);
 		draw_result.near = std::min(draw_result.near, draw_result.far - 0.01f);
 		draw_result.near = std::max(draw_result.near, draw_result.far / 200);
 
-		if (resource->render_state.auto_adjust_near_plane) resource->render_state.near = draw_result.near;
-		if (resource->render_state.auto_adjust_far_plane) resource->render_state.far = draw_result.far;
+		if (core->params.auto_adjust_near_plane) core->params.near = draw_result.near;
+		if (core->params.auto_adjust_far_plane) core->params.far = draw_result.far;
+		core->params.gbuffer_object_count = core->model_renderer.get_object_count();
 
-		resource->render_state.gbuffer_cpu_time = draw_result.time_consumed;
+		core->params.gbuffer_cpu_time = draw_result.time_consumed;
 	}
 	command_buffer.end_render_pass();
 
@@ -334,27 +328,24 @@ void App_render_logic::draw_gbuffer(uint32_t idx, const App_render_state::Draw_p
 
 void App_render_logic::draw_lighting(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
-	const auto  draw_extent    = vk::Rect2D({0, 0}, resource->swapchain.extent);
+	const auto& command_buffer = core->env.command_buffer[idx];
+	const auto  draw_extent    = vk::Rect2D({0, 0}, core->env.swapchain.extent);
 
 	auto set_viewport = [=, this](bool flip)
 	{
 		if (flip)
-			command_buffer.set_viewport(utility::flip_viewport(
-				vk::Viewport(0, 0, resource->swapchain.extent.width, resource->swapchain.extent.height, 0.0, 1.0)
+			command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
 			));
 		else
-			command_buffer.set_viewport(
-				vk::Viewport(0, 0, resource->swapchain.extent.width, resource->swapchain.extent.height, 0.0, 1.0)
-			);
+			command_buffer.set_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0));
 
-		command_buffer.set_scissor(vk::Rect2D({0, 0}, resource->swapchain.extent));
+		command_buffer.set_scissor(vk::Rect2D({0, 0}, core->env.swapchain.extent));
 	};
 
 	// Lighting Pass
 	command_buffer.begin_render_pass(
-		resource->main_pipeline.lighting_pipeline.render_pass,
-		resource->main_rt.lighting_rt[idx].framebuffer,
+		core->Pipeline_set.lighting_pipeline.render_pass,
+		core->render_targets[idx].lighting_rt.framebuffer,
 		draw_extent,
 		{Lighting_pipeline::clear_value}
 	);
@@ -363,15 +354,12 @@ void App_render_logic::draw_lighting(uint32_t idx)
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
-			resource->main_pipeline.lighting_pipeline.pipeline_layout,
+			core->Pipeline_set.lighting_pipeline.pipeline_layout,
 			0,
-			{resource->main_rt.lighting_rt[idx].input_descriptor_set, resource->render_state.hdri->descriptor_set}
+			{core->render_targets[idx].lighting_rt.input_descriptor_set, core->params.hdri->descriptor_set}
 		);
 
-		command_buffer.bind_pipeline(
-			vk::PipelineBindPoint::eGraphics,
-			resource->main_pipeline.lighting_pipeline.pipeline
-		);
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, core->Pipeline_set.lighting_pipeline.pipeline);
 
 		command_buffer.draw(0, 4, 0, 1);
 	}
@@ -380,8 +368,8 @@ void App_render_logic::draw_lighting(uint32_t idx)
 
 void App_render_logic::compute_auto_exposure(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
-	const auto  g_queue_family = resource->env.g_family_idx, c_queue_family = resource->env.c_family_idx;
+	const auto& command_buffer = core->env.command_buffer[idx];
+	const auto  g_queue_family = core->env.g_family_idx, c_queue_family = core->env.c_family_idx;
 
 	{  // Sync 1
 		const vk::ImageMemoryBarrier barrier(
@@ -391,7 +379,7 @@ void App_render_logic::compute_auto_exposure(uint32_t idx)
 			vk::ImageLayout::eGeneral,
 			g_queue_family,
 			c_queue_family,
-			resource->main_rt.lighting_rt[idx].brightness,
+			core->render_targets[idx].lighting_rt.brightness,
 			{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
 		);
 
@@ -400,7 +388,7 @@ void App_render_logic::compute_auto_exposure(uint32_t idx)
 			vk::AccessFlagBits::eShaderWrite,
 			c_queue_family,
 			c_queue_family,
-			resource->main_rt.auto_exposure_rt.medium_buffer,
+			core->render_targets.auto_exposure_rt.medium_buffer,
 			0,
 			sizeof(Auto_exposure_compute_pipeline::Exposure_medium)
 		);
@@ -424,16 +412,13 @@ void App_render_logic::compute_auto_exposure(uint32_t idx)
 		);
 	}
 	{  // Dispatch Avg Calculation
-		command_buffer.bind_pipeline(
-			vk::PipelineBindPoint::eCompute,
-			resource->main_pipeline.auto_exposure_pipeline.luminance_avg_pipeline
-		);
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, core->Pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline);
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eCompute,
-			resource->main_pipeline.auto_exposure_pipeline.luminance_avg_pipeline_layout,
+			core->Pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline_layout,
 			0,
-			{resource->main_rt.auto_exposure_rt.luminance_avg_descriptor_sets[idx]}
+			{core->render_targets.auto_exposure_rt.luminance_avg_descriptor_sets[idx]}
 		);
 
 		const Auto_exposure_compute_pipeline::Luminance_params params{
@@ -441,17 +426,12 @@ void App_render_logic::compute_auto_exposure(uint32_t idx)
 			Auto_exposure_compute_pipeline::max_luminance
 		};
 
-		command_buffer.push_constants(
-			resource->main_pipeline.auto_exposure_pipeline.luminance_avg_pipeline_layout,
-			vk::ShaderStageFlagBits::eCompute,
-			params,
-			0
-		);
+		command_buffer.push_constants(core->Pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline_layout, vk::ShaderStageFlagBits::eCompute, params, 0);
 
 		const auto group_size = Auto_exposure_compute_pipeline::luminance_avg_workgroup_size;
 		command_buffer->dispatch(
-			(uint32_t)ceil((float)resource->swapchain.extent.width / group_size.x),
-			(uint32_t)ceil((float)resource->swapchain.extent.height / group_size.y),
+			(uint32_t)ceil((float)core->env.swapchain.extent.width / group_size.x),
+			(uint32_t)ceil((float)core->env.swapchain.extent.height / group_size.y),
 			1
 		);
 	}
@@ -461,47 +441,32 @@ void App_render_logic::compute_auto_exposure(uint32_t idx)
 			vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
 			c_queue_family,
 			c_queue_family,
-			resource->main_rt.auto_exposure_rt.medium_buffer,
+			core->render_targets.auto_exposure_rt.medium_buffer,
 			0,
 			sizeof(Auto_exposure_compute_pipeline::Exposure_medium)
 		);
 
-		command_buffer->pipelineBarrier(
-			vk::PipelineStageFlagBits::eComputeShader,
-			vk::PipelineStageFlagBits::eComputeShader,
-			{},
-			{},
-			{barrier},
-			{}
-		);
+		command_buffer->pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader, {}, {}, {barrier}, {});
 	}
 	{  // Dispatch Exposure Lerp
-		command_buffer.bind_pipeline(
-			vk::PipelineBindPoint::eCompute,
-			resource->main_pipeline.auto_exposure_pipeline.lerp_pipeline
-		);
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, core->Pipeline_set.auto_exposure_pipeline.lerp_pipeline);
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eCompute,
-			resource->main_pipeline.auto_exposure_pipeline.lerp_pipeline_layout,
+			core->Pipeline_set.auto_exposure_pipeline.lerp_pipeline_layout,
 			0,
-			{resource->main_rt.auto_exposure_rt.lerp_descriptor_set}
+			{core->render_targets.auto_exposure_rt.lerp_descriptor_set}
 		);
 
 		Auto_exposure_compute_pipeline::Lerp_params params;
-		params.adapt_speed    = resource->render_state.adapt_speed;
+		params.adapt_speed    = core->params.adapt_speed;
 		params.delta_time     = ImGui::GetIO().DeltaTime;
 		params.min_luminance  = Auto_exposure_compute_pipeline::min_luminance;
 		params.max_luminance  = Auto_exposure_compute_pipeline::max_luminance;
-		params.texture_size_x = resource->swapchain.extent.width;
-		params.texture_size_y = resource->swapchain.extent.height;
+		params.texture_size_x = core->env.swapchain.extent.width;
+		params.texture_size_y = core->env.swapchain.extent.height;
 
-		command_buffer.push_constants(
-			resource->main_pipeline.auto_exposure_pipeline.lerp_pipeline_layout,
-			vk::ShaderStageFlagBits::eCompute,
-			params,
-			0
-		);
+		command_buffer.push_constants(core->Pipeline_set.auto_exposure_pipeline.lerp_pipeline_layout, vk::ShaderStageFlagBits::eCompute, params, 0);
 
 		command_buffer->dispatch(1, 1, 1);
 	}
@@ -511,34 +476,27 @@ void App_render_logic::compute_auto_exposure(uint32_t idx)
 			vk::AccessFlagBits::eShaderRead,
 			c_queue_family,
 			g_queue_family,
-			resource->main_rt.auto_exposure_rt.out_buffer,
+			core->render_targets.auto_exposure_rt.out_buffer,
 			0,
 			sizeof(Auto_exposure_compute_pipeline::Exposure_result)
 		);
 
-		command_buffer->pipelineBarrier(
-			vk::PipelineStageFlagBits::eComputeShader,
-			vk::PipelineStageFlagBits::eFragmentShader,
-			{},
-			{},
-			{barrier},
-			{}
-		);
+		command_buffer->pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {barrier}, {});
 	}
 }
 
 void App_render_logic::compute_bloom(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
-	const auto  g_queue_family = resource->env.g_family_idx, c_queue_family = resource->env.c_family_idx;
+	const auto& command_buffer = core->env.command_buffer[idx];
+	const auto  g_queue_family = core->env.g_family_idx, c_queue_family = core->env.c_family_idx;
 
-	const auto& rt        = resource->main_rt;
-	const auto& pipeline  = resource->main_pipeline;
-	const auto& swapchain = resource->swapchain;
+	const auto& rt        = core->render_targets[idx];
+	const auto& pipeline  = core->Pipeline_set;
+	const auto& swapchain = core->env.swapchain;
 
 	{  // Sync
 		command_buffer.layout_transit(
-			rt.lighting_rt[idx].luminance,
+			rt.lighting_rt.luminance,
 			vk::ImageLayout::eGeneral,
 			vk::ImageLayout::eGeneral,
 			vk::AccessFlagBits::eColorAttachmentWrite,
@@ -552,7 +510,7 @@ void App_render_logic::compute_bloom(uint32_t idx)
 		);
 
 		command_buffer.layout_transit(
-			rt.bloom_rt[idx].bloom_downsample_chain,
+			rt.bloom_rt.bloom_downsample_chain,
 			vk::ImageLayout::eUndefined,
 			vk::ImageLayout::eGeneral,
 			vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eTransferRead,
@@ -564,7 +522,7 @@ void App_render_logic::compute_bloom(uint32_t idx)
 		);
 
 		command_buffer.layout_transit(
-			rt.bloom_rt[idx].bloom_upsample_chain,
+			rt.bloom_rt.bloom_upsample_chain,
 			vk::ImageLayout::eUndefined,
 			vk::ImageLayout::eGeneral,
 			vk::AccessFlagBits::eShaderRead,
@@ -580,19 +538,12 @@ void App_render_logic::compute_bloom(uint32_t idx)
 			vk::AccessFlagBits::eShaderRead,
 			vk::QueueFamilyIgnored,
 			vk::QueueFamilyIgnored,
-			rt.auto_exposure_rt.out_buffer,
+			core->render_targets.auto_exposure_rt.out_buffer,
 			0,
 			sizeof(Auto_exposure_compute_pipeline::Exposure_result)
 		};
 
-		command_buffer->pipelineBarrier(
-			vk::PipelineStageFlagBits::eComputeShader,
-			vk::PipelineStageFlagBits::eComputeShader,
-			{},
-			{},
-			{exposure_barrier},
-			{}
-		);
+		command_buffer->pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader, {}, {}, {exposure_barrier}, {});
 	}
 
 	// Filter
@@ -602,38 +553,28 @@ void App_render_logic::compute_bloom(uint32_t idx)
 			vk::PipelineBindPoint::eCompute,
 			pipeline.bloom_pipeline.bloom_filter_pipeline_layout,
 			0,
-			{rt.bloom_rt[idx].bloom_filter_descriptor_set},
+			{rt.bloom_rt.bloom_filter_descriptor_set},
 			{}
 		);
 
-		const Bloom_pipeline::Params params{
-			resource->render_state.bloom_start,
-			resource->render_state.bloom_end,
-			exp2(resource->render_state.exposure_ev)
-		};
+		const Bloom_pipeline::Params params{core->params.bloom_start, core->params.bloom_end, exp2(core->params.exposure_ev)};
 
-		command_buffer.push_constants(
-			pipeline.bloom_pipeline.bloom_filter_pipeline_layout,
-			vk::ShaderStageFlagBits::eCompute,
-			params,
-			0
-		);
+		command_buffer.push_constants(pipeline.bloom_pipeline.bloom_filter_pipeline_layout, vk::ShaderStageFlagBits::eCompute, params, 0);
 
 		// Filter pixels
-		command_buffer
-			->dispatch(ceil((float)swapchain.extent.width / 16), ceil((float)swapchain.extent.height / 16), 1);
+		command_buffer->dispatch(ceil((float)swapchain.extent.width / 16), ceil((float)swapchain.extent.height / 16), 1);
 	}
 
 	// Downsample & Blur
 	{
-		const auto downsample_image = rt.bloom_rt[idx].bloom_downsample_chain;
-		const auto upsample_image   = rt.bloom_rt[idx].bloom_upsample_chain;
+		const auto downsample_image = rt.bloom_rt.bloom_downsample_chain;
+		const auto upsample_image   = rt.bloom_rt.bloom_upsample_chain;
 
 		auto blit_image = [=](uint32_t i)
 		{
 			vk::ImageBlit blit_info;
-			const auto    extent1 = rt.bloom_rt[idx].extents[i];
-			const auto    extent2 = rt.bloom_rt[idx].extents[i + 1];
+			const auto    extent1 = rt.bloom_rt.extents[i];
+			const auto    extent2 = rt.bloom_rt.extents[i + 1];
 
 			std::array<vk::Offset3D, 2> src_region, dst_region;
 
@@ -648,21 +589,14 @@ void App_render_logic::compute_bloom(uint32_t idx)
 				.setDstOffsets(dst_region);
 
 			// Do blit
-			command_buffer.blit_image(
-				upsample_image,
-				vk::ImageLayout::eGeneral,
-				downsample_image,
-				vk::ImageLayout::eGeneral,
-				{blit_info},
-				vk::Filter::eLinear
-			);
+			command_buffer.blit_image(upsample_image, vk::ImageLayout::eGeneral, downsample_image, vk::ImageLayout::eGeneral, {blit_info}, vk::Filter::eLinear);
 		};
 
 		auto blit_filter = [=]
 		{
 			vk::ImageBlit blit_info;
-			const auto    extent1 = rt.bloom_rt[idx].extents[0];
-			const auto    extent2 = rt.bloom_rt[idx].extents[1];
+			const auto    extent1 = rt.bloom_rt.extents[0];
+			const auto    extent2 = rt.bloom_rt.extents[1];
 
 			std::array<vk::Offset3D, 2> src_region, dst_region;
 
@@ -677,14 +611,8 @@ void App_render_logic::compute_bloom(uint32_t idx)
 				.setDstOffsets(dst_region);
 
 			// Do blit
-			command_buffer.blit_image(
-				downsample_image,
-				vk::ImageLayout::eGeneral,
-				downsample_image,
-				vk::ImageLayout::eGeneral,
-				{blit_info},
-				vk::Filter::eLinear
-			);
+			command_buffer
+				.blit_image(downsample_image, vk::ImageLayout::eGeneral, downsample_image, vk::ImageLayout::eGeneral, {blit_info}, vk::Filter::eLinear);
 		};
 
 		// downsample
@@ -708,7 +636,7 @@ void App_render_logic::compute_bloom(uint32_t idx)
 				vk::PipelineBindPoint::eCompute,
 				pipeline.bloom_pipeline.bloom_blur_pipeline_layout,
 				0,
-				{rt.bloom_rt[idx].bloom_blur_descriptor_sets[i - 1]},
+				{rt.bloom_rt.bloom_blur_descriptor_sets[i - 1]},
 				{}
 			);
 
@@ -723,7 +651,7 @@ void App_render_logic::compute_bloom(uint32_t idx)
 				{vk::ImageAspectFlagBits::eColor, i, 1, 0, 1}
 			);
 
-			const auto extent = rt.bloom_rt[idx].extents[i];
+			const auto extent = rt.bloom_rt.extents[i];
 
 			command_buffer->dispatch(ceil((float)extent.width / 16), ceil((float)extent.height / 16), 1);
 
@@ -758,13 +686,13 @@ void App_render_logic::compute_bloom(uint32_t idx)
 		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, pipeline.bloom_pipeline.bloom_acc_pipeline);
 		for (int i = bloom_downsample_count - 3; i >= 0; i--)
 		{
-			const auto extent = rt.bloom_rt[idx].extents[i + 1];
+			const auto extent = rt.bloom_rt.extents[i + 1];
 
 			command_buffer->bindDescriptorSets(
 				vk::PipelineBindPoint::eCompute,
 				pipeline.bloom_pipeline.bloom_acc_pipeline_layout,
 				0,
-				{rt.bloom_rt[idx].bloom_acc_descriptor_sets[i]},
+				{rt.bloom_rt.bloom_acc_descriptor_sets[i]},
 				{}
 			);
 
@@ -786,7 +714,7 @@ void App_render_logic::compute_bloom(uint32_t idx)
 
 	// Sync
 	command_buffer.layout_transit(
-		rt.lighting_rt[idx].luminance,
+		rt.lighting_rt.luminance,
 		vk::ImageLayout::eGeneral,
 		vk::ImageLayout::eShaderReadOnlyOptimal,
 		vk::AccessFlagBits::eShaderRead,
@@ -802,26 +730,23 @@ void App_render_logic::compute_bloom(uint32_t idx)
 
 void App_render_logic::draw_composite(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
-	const auto  draw_extent    = vk::Rect2D({0, 0}, resource->swapchain.extent);
+	const auto& command_buffer = core->env.command_buffer[idx];
+	const auto  draw_extent    = vk::Rect2D({0, 0}, core->env.swapchain.extent);
 
 	auto set_viewport = [=, this](bool flip)
 	{
 		if (flip)
-			command_buffer.set_viewport(utility::flip_viewport(
-				vk::Viewport(0, 0, resource->swapchain.extent.width, resource->swapchain.extent.height, 0.0, 1.0)
+			command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
 			));
 		else
-			command_buffer.set_viewport(
-				vk::Viewport(0, 0, resource->swapchain.extent.width, resource->swapchain.extent.height, 0.0, 1.0)
-			);
+			command_buffer.set_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0));
 
-		command_buffer.set_scissor(vk::Rect2D({0, 0}, resource->swapchain.extent));
+		command_buffer.set_scissor(vk::Rect2D({0, 0}, core->env.swapchain.extent));
 	};
 
 	command_buffer.begin_render_pass(
-		resource->main_pipeline.composite_pipeline.render_pass,
-		resource->main_rt.composite_rt[idx].framebuffer,
+		core->Pipeline_set.composite_pipeline.render_pass,
+		core->render_targets[idx].composite_rt.framebuffer,
 		draw_extent,
 		{Composite_pipeline::clear_value}
 	);
@@ -830,15 +755,12 @@ void App_render_logic::draw_composite(uint32_t idx)
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
-			resource->main_pipeline.composite_pipeline.pipeline_layout,
+			core->Pipeline_set.composite_pipeline.pipeline_layout,
 			0,
-			{resource->main_rt.composite_rt[idx].descriptor_set}
+			{core->render_targets[idx].composite_rt.descriptor_set}
 		);
 
-		command_buffer.bind_pipeline(
-			vk::PipelineBindPoint::eGraphics,
-			resource->main_pipeline.composite_pipeline.pipeline
-		);
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, core->Pipeline_set.composite_pipeline.pipeline);
 		command_buffer.draw(0, 4, 0, 1);
 	}
 	command_buffer.end_render_pass();
@@ -846,9 +768,8 @@ void App_render_logic::draw_composite(uint32_t idx)
 
 void App_render_logic::ui_logic()
 {
-	auto& params    = resource->render_state;
-	auto& swapchain = resource->swapchain;
-	auto& renderer  = resource->model_renderer;
+	auto& params    = core->params;
+	auto& swapchain = core->env.swapchain;
 
 	params.camera_controller.update(ImGui::GetIO());
 
@@ -857,13 +778,9 @@ void App_render_logic::ui_logic()
 		const float framerate = ImGui::GetIO().Framerate;
 		const float dt        = ImGui::GetIO().DeltaTime;
 		ImGui::SetNextWindowPos({20, (float)swapchain.extent.height - 20}, ImGuiCond_Always, {0, 1});
-		ImGui::Begin(
-			"Framerate",
-			NULL,
-			ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize
-		);
+		ImGui::Begin("Framerate", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize);
 		{
-			ImGui::Text("Objects: %d", renderer.get_object_count());
+			ImGui::Text("Objects: G=%d/S=%d", params.gbuffer_object_count, params.shadow_object_count);
 			ImGui::Text("FPS: %.1f", framerate);
 			ImGui::Text("DT: %.1fms", dt * 1000);
 			ImGui::Text("CPU Time: %.0fus", (params.gbuffer_cpu_time + params.shadow_cpu_time) * 1000);
@@ -966,6 +883,7 @@ void App_render_logic::ui_logic()
 					params.shadow_perspective_layer = std::clamp<int>(params.shadow_perspective_layer, 0, 2);
 				}
 				ImGui::EndDisabled();
+				ImGui::Checkbox("Sort Drawcalls", &params.sort_drawcall);
 			}
 		}
 		ImGui::End();
@@ -988,18 +906,17 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 	// Start load thread
 	auto load_work = [this]
 	{
-		resource->render_state.model = std::make_shared<io::mesh::gltf::Model>();  // create new
+		core->params.model = std::make_shared<io::mesh::gltf::Model>();  // create new
 
 		// Loader Context
 		io::mesh::gltf::Loader_context loader_context;
-		loader_context.allocator       = resource->env.allocator;
-		loader_context.command_pool    = Command_pool(resource->env.device, resource->env.g_family_idx);
-		loader_context.device          = resource->env.device;
-		loader_context.transfer_queue  = resource->env.t_queue;
-		loader_context.physical_device = resource->env.physical_device;
-		loader_context.texture_descriptor_set_layout
-			= resource->main_pipeline.gbuffer_pipeline.descriptor_set_layout_texture;
-		loader_context.albedo_only_layout = resource->main_pipeline.shadow_pipeline.descriptor_set_layout_texture;
+		loader_context.allocator                     = core->env.allocator;
+		loader_context.command_pool                  = Command_pool(core->env.device, core->env.g_family_idx);
+		loader_context.device                        = core->env.device;
+		loader_context.transfer_queue                = core->env.t_queue;
+		loader_context.physical_device               = core->env.physical_device;
+		loader_context.texture_descriptor_set_layout = core->Pipeline_set.gbuffer_pipeline.descriptor_set_layout_texture;
+		loader_context.albedo_only_layout            = core->Pipeline_set.shadow_pipeline.descriptor_set_layout_texture;
 
 		const auto extension = std::filesystem::path(load_path).extension();
 
@@ -1007,7 +924,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 		{
 			if (load_path == "**built-in--damaged-helmet**")
 			{
-				resource->render_state.model->load_gltf_memory(
+				core->params.model->load_gltf_memory(
 					loader_context,
 					std::span((uint8_t*)binary_resource::damaged_helmet_data, binary_resource::damaged_helmet_size),
 					&load_stage
@@ -1016,16 +933,16 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 			else
 			{
 				if (extension == ".gltf")
-					resource->render_state.model->load_gltf_ascii(loader_context, load_path, &load_stage);
+					core->params.model->load_gltf_ascii(loader_context, load_path, &load_stage);
 				else
-					resource->render_state.model->load_gltf_bin(loader_context, load_path, &load_stage);
+					core->params.model->load_gltf_bin(loader_context, load_path, &load_stage);
 			}
 		}
 		catch (const General_exception& e)
 		{
-			load_err_msg                 = e.msg;
-			load_stage                   = io::mesh::gltf::Load_stage::Error;
-			resource->render_state.model = nullptr;
+			load_err_msg       = e.msg;
+			load_stage         = io::mesh::gltf::Load_stage::Error;
+			core->params.model = nullptr;
 			return;
 		}
 	};
@@ -1043,9 +960,9 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 			if (event.type == SDL_QUIT) return nullptr;
 		}
 
-		resource->ui_controller.imgui_new_frame();
+		core->ui_controller.imgui_new_frame();
 
-		const auto render_result = resource->render_one_frame(
+		const auto render_result = core->render_one_frame(
 			[this](uint32_t idx)
 			{
 				draw(idx);
@@ -1056,40 +973,35 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 
 		if (quit)
 		{
-			if (load_stage == io::mesh::gltf::Load_stage::Finished && resource->render_state.hdri != nullptr)
+			if (load_stage == io::mesh::gltf::Load_stage::Finished && core->params.hdri != nullptr)
 			{
-				return std::make_shared<App_render_logic>(resource);
+				return std::make_shared<App_render_logic>(core);
 			}
 			else
-				return std::make_shared<App_idle_logic>(resource);
+				return std::make_shared<App_idle_logic>(core);
 		}
 	}
 }
 
 void App_load_model_logic::draw(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
+	const auto& command_buffer = core->env.command_buffer[idx];
 
 	command_buffer.begin();
 	{
 		ui_logic();
-		resource->ui_controller.imgui_draw(resource->env, resource->swapchain, idx, true);
+		core->ui_controller.imgui_draw(core->env, idx, true);
 	}
 	command_buffer.end();
 }
 
 void App_load_model_logic::ui_logic()
 {
-	ImGui::SetNextWindowPos(
-		ImVec2(resource->swapchain.extent.width / 2.0, resource->swapchain.extent.height / 2.0),
-		ImGuiCond_Always,
-		{0.5, 0.5}
-	);
+	ImGui::SetNextWindowPos(ImVec2(core->env.swapchain.extent.width / 2.0, core->env.swapchain.extent.height / 2.0), ImGuiCond_Always, {0.5, 0.5});
 	if (ImGui::Begin(
 			"##Load Window",
 			nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoTitleBar
-				| ImGuiWindowFlags_NoMove
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
 		))
 	{
 		const char* display_msg      = "";
@@ -1133,7 +1045,7 @@ void App_load_model_logic::ui_logic()
 		else
 		{
 			// Show Progress bar
-			ImGui::ProgressBar(display_progress, ImVec2(resource->swapchain.extent.width / 3.0f, 0));
+			ImGui::ProgressBar(display_progress, ImVec2(core->env.swapchain.extent.width / 3.0f, 0));
 		}
 	}
 	ImGui::End();
@@ -1162,9 +1074,9 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 			if (event.type == SDL_QUIT) return nullptr;
 		}
 
-		resource->ui_controller.imgui_new_frame();
+		core->ui_controller.imgui_new_frame();
 
-		const auto render_result = resource->render_one_frame(
+		const auto render_result = core->render_one_frame(
 			[this](uint32_t idx)
 			{
 				draw(idx);
@@ -1180,44 +1092,41 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 	if (draw_logic() == nullptr) return nullptr;
 	if (draw_logic() == nullptr) return nullptr;
 
-	resource->env.device->waitIdle();
+	core->env.device->waitIdle();
 
 	// load HDRI
 	try
 	{
-		resource->render_state.hdri = std::make_shared<Hdri_resource>();
+		core->params.hdri = std::make_shared<Hdri_resource>();
 		io::images::Stbi_image_utility hdri_image;
 
 		// load image
 		{
-			auto hdri_command_buffer = resource->env.command_buffer[0];
+			auto hdri_command_buffer = core->env.command_buffer[0];
 
 			hdri_command_buffer.begin();
 
-			const auto staging_buffer
-				= load_path == "**built-in--hdri**"
-					? hdri_image
-						  .load_hdri(resource->env.allocator, hdri_command_buffer, binary_resource::builtin_hdr_span)
-					: hdri_image.load_hdri(resource->env.allocator, hdri_command_buffer, load_path);
+			const auto staging_buffer = load_path == "**built-in--hdri**"
+										  ? hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, binary_resource::builtin_hdr_span)
+										  : hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, load_path);
 
 			hdri_command_buffer.end();
 
 			const auto submit_command_buffers = Command_buffer::to_array({hdri_command_buffer});
-			resource->env.t_queue.submit(vk::SubmitInfo().setCommandBuffers(submit_command_buffers));
+			core->env.t_queue.submit(vk::SubmitInfo().setCommandBuffers(submit_command_buffers));
 
-			resource->env.device->waitIdle();
+			core->env.device->waitIdle();
 		}
 
 		const Image_view hdri_view(
-			resource->env.device,
+			core->env.device,
 			hdri_image.image,
 			vk::Format::eR16G16B16A16Sfloat,
 			vk::ImageViewType::e2D,
 			{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
 		);
 
-		resource->render_state.hdri
-			->generate(resource->env, hdri_view, 1024, resource->main_pipeline.lighting_pipeline.skybox_input_layout);
+		core->params.hdri->generate(core->env, hdri_view, 1024, core->Pipeline_set.lighting_pipeline.skybox_input_layout);
 
 		load_state = Load_state::Load_success;
 	}
@@ -1227,7 +1136,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 		load_state       = Load_state::Load_failed;
 
 		// cleanup
-		resource->render_state.hdri = nullptr;
+		core->params.hdri = nullptr;
 	}
 
 	// After load
@@ -1237,40 +1146,35 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 
 		if (load_state == Load_state::Quit || load_state == Load_state::Load_success)
 		{
-			if (resource->render_state.model != nullptr)
+			if (core->params.model != nullptr)
 			{
-				return std::make_shared<App_render_logic>(resource);
+				return std::make_shared<App_render_logic>(core);
 			}
 			else
-				return std::make_shared<App_idle_logic>(resource);
+				return std::make_shared<App_idle_logic>(core);
 		}
 	}
 }
 
 void App_load_hdri_logic::draw(uint32_t idx)
 {
-	const auto& command_buffer = resource->env.command_buffer[idx];
+	const auto& command_buffer = core->env.command_buffer[idx];
 
 	command_buffer.begin();
 	{
 		ui_logic();
-		resource->ui_controller.imgui_draw(resource->env, resource->swapchain, idx, true);
+		core->ui_controller.imgui_draw(core->env, idx, true);
 	}
 	command_buffer.end();
 }
 
 void App_load_hdri_logic::ui_logic()
 {
-	ImGui::SetNextWindowPos(
-		ImVec2(resource->swapchain.extent.width / 2.0, resource->swapchain.extent.height / 2.0),
-		ImGuiCond_Always,
-		{0.5, 0.5}
-	);
+	ImGui::SetNextWindowPos(ImVec2(core->env.swapchain.extent.width / 2.0, core->env.swapchain.extent.height / 2.0), ImGuiCond_Always, {0.5, 0.5});
 	if (ImGui::Begin(
 			"##Load Window",
 			nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoTitleBar
-				| ImGuiWindowFlags_NoMove
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
 		))
 	{
 		switch (load_state)

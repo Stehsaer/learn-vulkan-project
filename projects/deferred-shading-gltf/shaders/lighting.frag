@@ -14,7 +14,7 @@ layout(set = 0, binding = 3) uniform sampler2D pbr_tex;
 layout(set = 0, binding = 4) uniform sampler2DShadow shadow_map[3];
 layout(set = 0, binding = 5) uniform sampler2D emissive_tex;
 
-layout(std140, set = 0, binding = 6) uniform Trans_mat {
+layout(std140, set = 0, binding = 6) uniform Params {
 	mat4 view_projection_inv;
 	vec3 camera_position;
 	mat4 shadow[3];

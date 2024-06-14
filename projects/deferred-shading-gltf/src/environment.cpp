@@ -206,20 +206,25 @@ void Environment::find_queue_families()
 void Environment::create_logic_device()
 {
 
-	auto queue_priorities = std::to_array({1.0f, 1.0f, 1.0f});
+	auto queue_priorities = std::to_array({1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f});
 
-	const vk::DeviceQueueCreateInfo g_queue_create_info(
-		{},
-		g_family_idx,
-		std::min(g_family_idx == p_family_idx ? 3u : 2u, g_family_count),
-		queue_priorities.data()
-	);
+	std::map<uint32_t, uint32_t> family_idx_map;
 
-	const vk::DeviceQueueCreateInfo p_queue_create_info({}, p_family_idx, 1, queue_priorities.data());
+	const auto g_queue_offset = family_idx_map[g_family_idx];
+	family_idx_map[g_family_idx] += 1;
 
-	const vk::DeviceQueueCreateInfo c_queue_create_info({}, c_family_idx, 1, queue_priorities.data());
+	const auto t_queue_offset = family_idx_map[g_family_idx];
+	family_idx_map[g_family_idx] += 1;
 
-	auto queue_create_info = std::to_array({g_queue_create_info, p_queue_create_info, c_queue_create_info});
+	const auto p_queue_offset = family_idx_map[p_family_idx];
+	family_idx_map[p_family_idx]++;
+
+	const auto c_queue_offset = family_idx_map[c_family_idx];
+	family_idx_map[c_family_idx]++;
+
+	std::vector<vk::DeviceQueueCreateInfo> queue_create_info;
+	queue_create_info.reserve(family_idx_map.size());
+	for (const auto& item : family_idx_map) queue_create_info.push_back({{}, item.first, item.second, queue_priorities.data()});
 
 	// Request sampler anistropy
 	vk::PhysicalDeviceFeatures requested_features;
@@ -234,43 +239,13 @@ void Environment::create_logic_device()
 
 	const auto device_extensions = std::to_array({VK_KHR_SWAPCHAIN_EXTENSION_NAME});
 
-	device = Device(
-		physical_device,
-		std::span(queue_create_info.data(), 1 + (g_family_idx != p_family_idx)),
-		{},
-		device_extensions,
-		requested_features,
-		nullptr
-	);
+	device = Device(physical_device, queue_create_info, {}, device_extensions, requested_features, nullptr);
 
-	auto p_queue_idx = [this]() -> int
-	{
-		if (g_family_idx != p_family_idx) return 0;  // separate queue
-		if (g_family_count == 1) return 0;           // only one queue
-		return 1;                                    // more than 1 queue
-	}();
+	g_queue = device->getQueue(g_family_idx, g_queue_offset);
 
-	auto t_queue_idx = [this]() -> int
-	{
-		// 1 queue
-		if (g_family_count == 1) return 0;
-
-		// 2 queues
-		if (g_family_count == 2)
-		{
-			if (g_family_idx == p_family_idx) return 0;  // one for G/T, one for P
-			return 1;                                    // one for G, one for T
-		}
-
-		// more than 2 queues
-		if (g_family_idx == p_family_idx) return 2;
-		return 1;
-	}();
-
-	g_queue = device->getQueue(g_family_idx, 0);
-	p_queue = device->getQueue(p_family_idx, p_queue_idx);
-	t_queue = device->getQueue(g_family_idx, t_queue_idx);
-	c_queue = device->getQueue(c_family_idx, 0);
+	p_queue = device->getQueue(p_family_idx, p_queue_offset);
+	t_queue = device->getQueue(g_family_idx, t_queue_offset);
+	c_queue = device->getQueue(c_family_idx, c_queue_offset);
 }
 
 void Environment::create()

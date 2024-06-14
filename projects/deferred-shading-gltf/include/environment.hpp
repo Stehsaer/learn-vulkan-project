@@ -3,6 +3,9 @@
 #include <vklib-sdl2.hpp>
 #include <vklib>
 
+inline constexpr uint32_t csm_count              = 3;
+inline constexpr uint32_t bloom_downsample_count = 8;
+
 using namespace VKLIB_HPP_NAMESPACE;
 
 class Environment

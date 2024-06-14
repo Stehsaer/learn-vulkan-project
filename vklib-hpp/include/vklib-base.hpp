@@ -152,6 +152,16 @@ namespace VKLIB_HPP_NAMESPACE
 			return std::to_array<T>(arr);
 		}
 
+		template <typename Ty, size_t Size>
+			requires(std::is_base_of_v<Mono_resource<T>, Ty>)
+		inline static std::array<T, Size> to_array(const std::array<Ty, Size>& arr)
+		{
+			std::array<T, Size> ret;
+			for (auto i : Range(Size)) ret[i] = arr[i];
+
+			return ret;
+		}
+
 		template <typename Derived>
 			requires(std::is_convertible_v<Derived, T>)
 		inline static std::vector<T> to_vector(const std::vector<Derived>& vec)
@@ -263,6 +273,16 @@ namespace VKLIB_HPP_NAMESPACE
 		inline static std::array<T, Size> to_array(T (&&arr)[Size])
 		{
 			return std::to_array<T>(arr);
+		}
+
+		template <typename Ty, size_t Size>
+			requires(std::is_base_of_v<Child_resource<T, Parent_T>, Ty>)
+		inline static std::array<T, Size> to_array(const std::array<Ty, Size>& arr)
+		{
+			std::array<T, Size> ret;
+			for (auto i : Range(Size)) ret[i] = arr[i];
+
+			return ret;
 		}
 
 		template <typename Derived>

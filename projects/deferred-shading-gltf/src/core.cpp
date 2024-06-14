@@ -39,10 +39,7 @@ bool Core::render_one_frame(const loop_func& loop_func)
 	// Submit to Graphic Queue
 	{
 		const auto wait_stages         = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
-		const auto compute_wait_stages = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eComputeShader});
 		const auto command_buffer      = env.command_buffer[image_idx].to<vk::CommandBuffer>();
-
-		if (env.c_queue != env.g_queue) env.c_queue.submit(vk::SubmitInfo().setCommandBuffers(command_buffer).setWaitDstStageMask(compute_wait_stages), {});
 
 		env.g_queue.submit(
 			vk::SubmitInfo()

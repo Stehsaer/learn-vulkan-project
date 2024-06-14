@@ -32,11 +32,6 @@ struct Render_params
 	std::array<float, 3> shadow_near, shadow_far;
 	float                csm_blend_factor = 0.5;
 
-	/*====== Statistics ======*/
-
-	double   gbuffer_cpu_time, shadow_cpu_time;
-	uint32_t gbuffer_object_count, shadow_object_count;
-
 	/*====== Debug ======*/
 
 	bool show_shadow_perspective  = false;

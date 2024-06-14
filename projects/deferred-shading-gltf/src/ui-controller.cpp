@@ -129,6 +129,24 @@ void Ui_controller::imgui_draw(const Environment& env, uint32_t idx, bool unique
 	command_buffer.end_render_pass();
 }
 
+void Ui_controller::imgui_draw(const Environment& env, const Command_buffer& command_buffer, uint32_t idx, bool unique)
+{
+	const vk::ClearValue clear(vk::ClearColorValue(0, 0, 0, 0));
+
+	command_buffer.begin_render_pass(
+		unique ? imgui_unique_renderpass : imgui_renderpass,
+		imgui_framebuffers[idx],
+		vk::Rect2D({0, 0}, {env.swapchain.extent.width, env.swapchain.extent.height}),
+		std::span(&clear, unique),
+		vk::SubpassContents::eInline
+	);
+
+	ImDrawData* draw_data = ImGui::GetDrawData();
+	ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer.to<vk::CommandBuffer>());
+
+	command_buffer.end_render_pass();
+}
+
 void Ui_controller::terminate_imgui() const
 {
 	if (imgui_vulkan_initialized) ImGui_ImplVulkan_Shutdown();

@@ -133,74 +133,220 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 		core->ui_controller.imgui_new_frame();
 		core->params.camera_controller.update(ImGui::GetIO());
 
-		core->render_one_frame(
-			[this](uint32_t idx)
+		uint32_t image_idx;
+
+		while (true)
+		{
+			try
 			{
-				draw(idx);
+				auto acquire_result = core->env.device->acquireNextImageKHR(
+					core->env.swapchain.swapchain,
+					1e10,
+					core->render_targets.acquire_semaphore
+				);
+
+				if (acquire_result.result == vk::Result::eSuccess) [[likely]]
+				{
+					image_idx = acquire_result.value;
+					break;
+				}
+
+				if (acquire_result.result == vk::Result::eNotReady) continue;
+			}
+			catch (const vk::OutOfDateKHRError& e)
+			{
+			}
+
+			stop_threads();
+			core->recreate_swapchain();
+			start_threads();
+		}
+
+		const auto wait_fence_result = core->env.device->waitForFences({core->render_targets.next_frame_fence}, true, 1e10);
+		if (wait_fence_result != vk::Result::eSuccess) throw General_exception("Fence wait timeout!");
+		core->env.device->resetFences({core->render_targets.next_frame_fence});
+
+		// Record Command Buffer
+		draw(image_idx);
+
+		// Submit
+		const auto deferred_signal_semaphore = Semaphore::to_array({deferred_semaphore});
+		const auto deferred_wait_semaphore   = Semaphore::to_array({core->render_targets.acquire_semaphore});
+		const auto deferred_wait_stages = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
+		const auto deferred_submit_buffers = utility::join_array(
+			Command_buffer::to_array({current_gbuffer_command_buffer}),
+			Command_buffer::to_array(current_shadow_command_buffer)
+		);
+		const auto deferred_submit_info = vk::SubmitInfo()
+											  .setCommandBuffers(deferred_submit_buffers)
+											  .setWaitDstStageMask(deferred_wait_stages)
+											  .setWaitSemaphores(deferred_wait_semaphore)
+											  .setSignalSemaphores(deferred_signal_semaphore);
+
+		const auto lighting_signal_semaphore = Semaphore::to_array({lighting_semaphore});
+		const auto lighting_wait_semaphore   = Semaphore::to_array({deferred_semaphore});
+		const auto lighting_wait_stages = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
+		const auto lighting_submit_buffers = Command_buffer::to_array({current_lighting_command_buffer});
+		const auto lighting_submit_info    = vk::SubmitInfo()
+											  .setCommandBuffers(lighting_submit_buffers)
+											  .setWaitDstStageMask(lighting_wait_stages)
+											  .setWaitSemaphores(lighting_wait_semaphore)
+											  .setSignalSemaphores(lighting_signal_semaphore);
+
+		const auto compute_signal_semaphore = Semaphore::to_array({compute_semaphore});
+		const auto compute_wait_semaphore   = Semaphore::to_array({lighting_semaphore});
+		const auto compute_wait_stages    = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
+		const auto compute_submit_buffers = Command_buffer::to_array({current_compute_command_buffer});
+		const auto compute_submit_info    = vk::SubmitInfo()
+											 .setCommandBuffers(compute_submit_buffers)
+											 .setWaitDstStageMask(compute_wait_stages)
+											 .setWaitSemaphores(compute_wait_semaphore)
+											 .setSignalSemaphores(compute_signal_semaphore);
+
+		const auto composite_signal_semaphore = Semaphore::to_array({composite_semaphore});
+		const auto composite_wait_semaphore   = Semaphore::to_array({compute_semaphore});
+		const auto composite_wait_stages      = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eComputeShader});
+		const auto composite_submit_buffers   = Command_buffer::to_array({current_composite_command_buffer});
+		const auto composite_submit_info      = vk::SubmitInfo()
+											   .setCommandBuffers(composite_submit_buffers)
+											   .setWaitDstStageMask(composite_wait_stages)
+											   .setWaitSemaphores(composite_wait_semaphore)
+											   .setSignalSemaphores(composite_signal_semaphore);
+
+		core->env.g_queue.submit({deferred_submit_info, lighting_submit_info});
+		core->env.c_queue.submit({compute_submit_info});
+		core->env.g_queue.submit({composite_submit_info}, core->render_targets.next_frame_fence);
+
+		// Present
+		{
+			vk::SwapchainKHR target_swapchain       = core->env.swapchain.swapchain;
+			const auto       present_wait_semaphore = Semaphore::to_array({composite_semaphore});
+			try
+			{
+				auto result = core->env.p_queue.presentKHR(vk::PresentInfoKHR()
+															   .setWaitSemaphores(present_wait_semaphore)
+															   .setSwapchains(target_swapchain)
+															   .setImageIndices(image_idx));
+				if (result != vk::Result::eSuccess)
+				{
+					// wait_fence();
+					// recreate_swapchain();
+					std::cout << std::format("Present Result Abnormal: {}", (int)result) << '\n';
+				}
+			}
+			catch (const vk::SystemError& err)
+			{
+				// wait_fence();
+				// recreate_swapchain();
+			}
+		}
+	}
+}
+
+void App_render_logic::start_threads()
+{
+	for (auto i : Range(csm_count))
+		shadow_thread[i] = std::jthread(
+			[this, i]()
+			{
+				shadow_thread_work(i);
 			}
 		);
-	}
+
+	gbuffer_thread = std::jthread(
+		[this]()
+		{
+			gbuffer_thread_work();
+		}
+	);
+
+	post_thread = std::jthread(
+		[this]()
+		{
+			post_thread_work();
+		}
+	);
+}
+
+void App_render_logic::stop_threads()
+{
+	multi_thread_stop = true;
+	frame_start_semaphore.release(csm_count + 2);
+
+	for (auto& thread : shadow_thread) thread.join();
+	gbuffer_thread.join();
+	post_thread.join();
+
+	multi_thread_stop = false;
 }
 
 void App_render_logic::draw(uint32_t idx)
 {
-	const auto& command_buffer = core->env.command_buffer[idx];
-
-	auto draw_params = core->params.get_draw_parameters(core->env);
-
-	const Gbuffer_pipeline::Camera_uniform gbuffer_camera{draw_params.view_projection};
-
-	Lighting_pipeline::Params lighting_params{
-		glm::inverse(draw_params.view_projection),
-		draw_params.eye_position,
-		{},
-		draw_params.light_dir,
-		core->params.light_color * core->params.light_intensity,
-		core->params.emissive_brightness,
-		core->params.skybox_brightness
-	};
-
-	std::array<Shadow_pipeline::Shadow_uniform, csm_count> shadow_uniforms;
-
-	for (auto i : Range(csm_count))
+	// update draw parameters
 	{
-		lighting_params.shadow[i] = draw_params.shadow_transformations[i];
-		shadow_uniforms[i]        = {draw_params.shadow_transformations[i]};
+		draw_params = core->params.get_draw_parameters(core->env);
+
+		const Gbuffer_pipeline::Camera_uniform gbuffer_camera{draw_params.view_projection};
+
+		Lighting_pipeline::Params lighting_params{
+			glm::inverse(draw_params.view_projection),
+			draw_params.eye_position,
+			{},
+			draw_params.light_dir,
+			core->params.light_color * core->params.light_intensity,
+			core->params.emissive_brightness,
+			core->params.skybox_brightness
+		};
+
+		std::array<Shadow_pipeline::Shadow_uniform, csm_count> shadow_uniforms;
+
+		for (auto i : Range(csm_count))
+		{
+			lighting_params.shadow[i] = draw_params.shadow_transformations[i];
+			shadow_uniforms[i]        = {draw_params.shadow_transformations[i]};
+		}
+
+		const Composite_pipeline::Exposure_param composite_param{exp2(core->params.exposure_ev), core->params.bloom_intensity};
+
+		core->render_targets[idx].update(core->env, shadow_uniforms, gbuffer_camera, lighting_params, composite_param);
+
+		// set variables
+		current_idx          = idx;
+		gbuffer_cpu_time     = 0;
+		gbuffer_object_count = 0;
+		shadow_cpu_time      = 0;
+		shadow_object_count  = 0;
 	}
 
-	const Composite_pipeline::Exposure_param composite_param{exp2(core->params.exposure_ev), core->params.bloom_intensity};
+	frame_start_semaphore.release(csm_count + 2);
 
-	core->render_targets[idx].update(core->env, shadow_uniforms, gbuffer_camera, lighting_params, composite_param);
-
-	command_buffer.begin();
-	{
-		draw_shadow(idx, draw_params);
-		draw_gbuffer(idx, draw_params);
-		draw_lighting(idx);
-		compute_auto_exposure(idx);
-		compute_bloom(idx);
-		draw_composite(idx);
-
-		ui_logic();
-		core->ui_controller.imgui_draw(core->env, idx, false);
-	}
-	command_buffer.end();
+	render_thread_barrier.arrive_and_wait();
 }
 
-void App_render_logic::draw_shadow(uint32_t idx, const Render_params::Draw_parameters& draw_params)
+void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 {
-	core->params.shadow_object_count = 0;
+	const Command_pool local_command_pool(
+		core->env.device,
+		core->env.g_family_idx,
+		vk::CommandPoolCreateFlagBits::eResetCommandBuffer
+	);
+	const std::vector<Command_buffer> command_buffers
+		= Command_buffer::allocate_multiple_from(local_command_pool, core->env.swapchain.image_count);
 
-	const auto& command_buffer = core->env.command_buffer[idx];
-
-	core->params.shadow_cpu_time = 0;
-
-	for (auto csm_idx : Range(csm_count))
+	// draw loop
+	while (true)
 	{
+		frame_start_semaphore.acquire();
+		if (multi_thread_stop) return;
+
+		const auto& command_buffer = command_buffers[current_idx];
+
+		command_buffer.begin();
+
 		// Begin Shadow Renderpass
 		command_buffer.begin_render_pass(
 			core->Pipeline_set.shadow_pipeline.render_pass,
-			core->render_targets[idx].shadow_rt.shadow_framebuffers[csm_idx],
+			core->render_targets[current_idx].shadow_rt.shadow_framebuffers[csm_idx],
 			vk::Rect2D({0, 0}, {shadow_map_res[csm_idx], shadow_map_res[csm_idx]}),
 			{Shadow_pipeline::clear_value},
 			vk::SubpassContents::eInline
@@ -219,7 +365,7 @@ void App_render_logic::draw_shadow(uint32_t idx, const Render_params::Draw_param
 			vk::PipelineBindPoint::eGraphics,
 			core->Pipeline_set.shadow_pipeline.pipeline_layout,
 			0,
-			{core->render_targets[idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
+			{core->render_targets[current_idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
 		);
 
 		auto bind_descriptor = [&](auto material)
@@ -232,7 +378,7 @@ void App_render_logic::draw_shadow(uint32_t idx, const Render_params::Draw_param
 			);
 		};
 
-		auto draw_result = core->model_renderer.render_gltf(
+		auto draw_result = shadow_renderer[csm_idx].render_gltf(
 			command_buffer,
 			*core->params.model,
 			draw_params.shadow_frustums[csm_idx],
@@ -247,94 +393,166 @@ void App_render_logic::draw_shadow(uint32_t idx, const Render_params::Draw_param
 
 		command_buffer.end_render_pass();
 
+		command_buffer.end();
+
 		draw_result.near = std::min((draw_result.near + draw_result.far) / 2.0f - 0.01f, draw_result.near);
 		draw_result.far  = std::max((draw_result.near + draw_result.far) / 2.0f + 0.01f, draw_result.far);
 
 		core->params.shadow_far[csm_idx]  = draw_result.far;
 		core->params.shadow_near[csm_idx] = draw_result.near;
-		core->params.shadow_cpu_time += draw_result.time_consumed;
-		core->params.shadow_object_count += core->model_renderer.get_object_count();
+		shadow_cpu_time += draw_result.time_consumed;
+		shadow_object_count += shadow_renderer[csm_idx].get_object_count();
+
+		current_shadow_command_buffer[csm_idx] = command_buffer;
+
+		model_rendering_statistic_barrier.arrive_and_wait();
+
+		render_thread_barrier.arrive_and_wait();
 	}
 }
 
-void App_render_logic::draw_gbuffer(uint32_t idx, const Render_params::Draw_parameters& draw_params)
+void App_render_logic::gbuffer_thread_work()
 {
-	const auto& command_buffer = core->env.command_buffer[idx];
-	const auto  draw_extent    = vk::Rect2D({0, 0}, core->env.swapchain.extent);
-
-	auto set_viewport = [=, this](bool flip)
-	{
-		if (flip)
-			command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
-			));
-		else
-			command_buffer.set_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0));
-
-		command_buffer.set_scissor(vk::Rect2D({0, 0}, core->env.swapchain.extent));
-	};
-
-	// Gbuffer Pass
-	command_buffer.begin_render_pass(
-		core->Pipeline_set.gbuffer_pipeline.render_pass,
-		core->render_targets[idx].gbuffer_rt.framebuffer,
-		draw_extent,
-		Gbuffer_pipeline::clear_values
+	const Command_pool local_command_pool(
+		core->env.device,
+		core->env.g_family_idx,
+		vk::CommandPoolCreateFlagBits::eResetCommandBuffer
 	);
+	const std::vector<Command_buffer> command_buffers
+		= Command_buffer::allocate_multiple_from(local_command_pool, core->env.swapchain.image_count);
+
+	const auto draw_extent = vk::Rect2D({0, 0}, core->env.swapchain.extent);
+
+	// draw loop
+	while (true)
 	{
-		set_viewport(true);
+		frame_start_semaphore.acquire();
 
-		command_buffer.bind_descriptor_sets(
-			vk::PipelineBindPoint::eGraphics,
-			core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
-			0,
-			{core->render_targets[idx].gbuffer_rt.camera_uniform_descriptor_set}
+		if (multi_thread_stop) return;
+
+		const auto& command_buffer = command_buffers[current_idx];
+
+		command_buffer.begin();
+
+		command_buffer.begin_render_pass(
+			core->Pipeline_set.gbuffer_pipeline.render_pass,
+			core->render_targets[current_idx].gbuffer_rt.framebuffer,
+			draw_extent,
+			Gbuffer_pipeline::clear_values
 		);
-
-		auto bind_descriptor = [&](auto material)
 		{
-			command_buffer
-				.bind_descriptor_sets(vk::PipelineBindPoint::eGraphics, core->Pipeline_set.gbuffer_pipeline.pipeline_layout, 1, {material.descriptor_set});
-		};
+			command_buffer.set_viewport(utility::flip_viewport(
+				vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
+			));
+			command_buffer.set_scissor(vk::Rect2D({0, 0}, core->env.swapchain.extent));
 
-		auto draw_result = core->model_renderer.render_gltf(
-			command_buffer,
-			*(core->params.model),
-			draw_params.gbuffer_frustum,
-			draw_params.eye_position,
-			draw_params.eye_path,
-			core->Pipeline_set.gbuffer_pipeline.pipeline,
-			core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
-			core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
-			bind_descriptor,
-			core->params.sort_drawcall
-		);
-		draw_result.far  = std::max(0.02f, draw_result.far);
-		draw_result.near = std::max(0.01f, draw_result.near);
-		draw_result.near = std::min(draw_result.near, draw_result.far - 0.01f);
-		draw_result.near = std::max(draw_result.near, draw_result.far / 200);
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+				0,
+				{core->render_targets[current_idx].gbuffer_rt.camera_uniform_descriptor_set}
+			);
 
-		if (core->params.auto_adjust_near_plane) core->params.near = draw_result.near;
-		if (core->params.auto_adjust_far_plane) core->params.far = draw_result.far;
-		core->params.gbuffer_object_count = core->model_renderer.get_object_count();
+			auto bind_descriptor = [&](auto material)
+			{
+				command_buffer.bind_descriptor_sets(
+					vk::PipelineBindPoint::eGraphics,
+					core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+					1,
+					{material.descriptor_set}
+				);
+			};
 
-		core->params.gbuffer_cpu_time = draw_result.time_consumed;
+			auto draw_result = gbuffer_renderer.render_gltf(
+				command_buffer,
+				*(core->params.model),
+				draw_params.gbuffer_frustum,
+				draw_params.eye_position,
+				draw_params.eye_path,
+				core->Pipeline_set.gbuffer_pipeline.pipeline,
+				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
+				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+				bind_descriptor,
+				core->params.sort_drawcall
+			);
+			draw_result.far  = std::max(0.02f, draw_result.far);
+			draw_result.near = std::max(0.01f, draw_result.near);
+			draw_result.near = std::min(draw_result.near, draw_result.far - 0.01f);
+			draw_result.near = std::max(draw_result.near, draw_result.far / 200);
+
+			if (core->params.auto_adjust_near_plane) core->params.near = draw_result.near;
+			if (core->params.auto_adjust_far_plane) core->params.far = draw_result.far;
+			gbuffer_object_count = gbuffer_renderer.get_object_count();
+
+			gbuffer_cpu_time = draw_result.time_consumed;
+		}
+		command_buffer.end_render_pass();
+
+		command_buffer.end();
+
+		current_gbuffer_command_buffer = command_buffer;
+
+		model_rendering_statistic_barrier.arrive_and_wait();
+
+		render_thread_barrier.arrive_and_wait();
 	}
-	command_buffer.end_render_pass();
-
-	// Compute Auto Exposure
-
-	// Composite Pass
 }
 
-void App_render_logic::draw_lighting(uint32_t idx)
+void App_render_logic::post_thread_work()
 {
-	const auto& command_buffer = core->env.command_buffer[idx];
-	const auto  draw_extent    = vk::Rect2D({0, 0}, core->env.swapchain.extent);
+	const Command_pool local_command_pool(
+		core->env.device,
+		core->env.g_family_idx,
+		vk::CommandPoolCreateFlagBits::eResetCommandBuffer
+	),
+		local_compute_command_pool(core->env.device, core->env.c_family_idx, vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
+
+	const std::vector<Command_buffer> lighting_command_buffer
+		= Command_buffer::allocate_multiple_from(local_command_pool, core->env.swapchain.image_count),
+		compute_command_buffer   = Command_buffer::allocate_multiple_from(local_compute_command_pool, core->env.swapchain.image_count),
+		composite_command_buffer = Command_buffer::allocate_multiple_from(local_command_pool, core->env.swapchain.image_count);
+
+	// draw loop
+	while (true)
+	{
+		frame_start_semaphore.acquire();
+
+		if (multi_thread_stop) return;
+
+		lighting_command_buffer[current_idx].begin();
+		draw_lighting(current_idx, lighting_command_buffer[current_idx]);
+		lighting_command_buffer[current_idx].end();
+
+		compute_command_buffer[current_idx].begin();
+		compute_auto_exposure(current_idx, compute_command_buffer[current_idx]);
+		compute_bloom(current_idx, compute_command_buffer[current_idx]);
+		compute_command_buffer[current_idx].end();
+
+		model_rendering_statistic_barrier.arrive_and_wait();
+
+		composite_command_buffer[current_idx].begin();
+		draw_composite(current_idx, composite_command_buffer[current_idx]);
+		ui_logic();
+		core->ui_controller.imgui_draw(core->env, composite_command_buffer[current_idx], current_idx, false);
+		composite_command_buffer[current_idx].end();
+
+		current_lighting_command_buffer  = lighting_command_buffer[current_idx];
+		current_compute_command_buffer   = compute_command_buffer[current_idx];
+		current_composite_command_buffer = composite_command_buffer[current_idx];
+
+		render_thread_barrier.arrive_and_wait();
+	}
+}
+
+void App_render_logic::draw_lighting(uint32_t idx, const Command_buffer& command_buffer)
+{
+	const auto draw_extent = vk::Rect2D({0, 0}, core->env.swapchain.extent);
 
 	auto set_viewport = [=, this](bool flip)
 	{
 		if (flip)
-			command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
+			command_buffer.set_viewport(utility::flip_viewport(
+				vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
 			));
 		else
 			command_buffer.set_viewport(vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0));
@@ -366,9 +584,8 @@ void App_render_logic::draw_lighting(uint32_t idx)
 	command_buffer.end_render_pass();
 }
 
-void App_render_logic::compute_auto_exposure(uint32_t idx)
+void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer& command_buffer)
 {
-	const auto& command_buffer = core->env.command_buffer[idx];
 	const auto  g_queue_family = core->env.g_family_idx, c_queue_family = core->env.c_family_idx;
 
 	{  // Sync 1
@@ -485,9 +702,8 @@ void App_render_logic::compute_auto_exposure(uint32_t idx)
 	}
 }
 
-void App_render_logic::compute_bloom(uint32_t idx)
+void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command_buffer)
 {
-	const auto& command_buffer = core->env.command_buffer[idx];
 	const auto  g_queue_family = core->env.g_family_idx, c_queue_family = core->env.c_family_idx;
 
 	const auto& rt        = core->render_targets[idx];
@@ -728,9 +944,8 @@ void App_render_logic::compute_bloom(uint32_t idx)
 	);
 }
 
-void App_render_logic::draw_composite(uint32_t idx)
+void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& command_buffer)
 {
-	const auto& command_buffer = core->env.command_buffer[idx];
 	const auto  draw_extent    = vk::Rect2D({0, 0}, core->env.swapchain.extent);
 
 	auto set_viewport = [=, this](bool flip)
@@ -780,10 +995,10 @@ void App_render_logic::ui_logic()
 		ImGui::SetNextWindowPos({20, (float)swapchain.extent.height - 20}, ImGuiCond_Always, {0, 1});
 		ImGui::Begin("Framerate", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize);
 		{
-			ImGui::Text("Objects: G=%d/S=%d", params.gbuffer_object_count, params.shadow_object_count);
+			ImGui::Text("Objects: G=%d/S=%d", gbuffer_object_count.load(), shadow_object_count.load());
 			ImGui::Text("FPS: %.1f", framerate);
 			ImGui::Text("DT: %.1fms", dt * 1000);
-			ImGui::Text("CPU Time: %.0fus", (params.gbuffer_cpu_time + params.shadow_cpu_time) * 1000);
+			ImGui::Text("CPU Time: %.0fus", (gbuffer_cpu_time + shadow_cpu_time) * 1000);
 		}
 		ImGui::End();
 	}

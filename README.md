@@ -32,12 +32,12 @@ Trying my best to make my codebase clean and neat! :smile:
     - GLTF Model Parsing and Rendering
     - Optimized Shadow Map View Adaptation
     - AgX Tonemapping
+    - Multi-threaded Command Recording
 
     **Planned Features**:
 
     - HDR Support
     - 10-bit Rendering Support
-    - Multi-threaded Command Recording
     - Mesh Combination at GLTF Parsing Stage
     - Skins & Animation
     - KTX Loading & Texture Compression

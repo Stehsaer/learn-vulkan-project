@@ -2,9 +2,6 @@
 
 #include "environment.hpp"
 
-inline constexpr uint32_t csm_count              = 3;
-inline constexpr uint32_t bloom_downsample_count = 8;
-
 struct General_model_matrix
 {
 	glm::mat4 matrix;

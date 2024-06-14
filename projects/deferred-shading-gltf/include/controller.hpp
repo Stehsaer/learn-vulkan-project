@@ -37,6 +37,7 @@ struct Ui_controller
 
 	void imgui_new_frame();
 	void imgui_draw(const Environment& env, uint32_t idx, bool unique = false);
+	void imgui_draw(const Environment& env, const Command_buffer& command_buffer, uint32_t idx, bool unique = false);
 
 	~Ui_controller() { terminate_imgui(); }
 

@@ -25,8 +25,7 @@ struct Core
 	Pipeline_set   Pipeline_set;
 	Ui_controller  ui_controller;
 
-	Render_params  params;
-	Model_renderer model_renderer;
+	Render_params params;
 
 	uint32_t command_buffer_idx = 0;
 

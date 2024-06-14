@@ -1,6 +1,10 @@
 #pragma once
 
 #include "core.hpp"
+#include <barrier>
+#include <condition_variable>
+#include <semaphore>
+#include <shared_mutex>
 
 class Application_logic_base
 {
@@ -43,26 +47,83 @@ class Application_logic_base
 
 class App_render_logic : public Application_logic_base
 {
-  public:
+  private:
 
-	virtual ~App_render_logic() {}
+	/* Statistics */
 
-	App_render_logic(std::shared_ptr<Core> resource) :
-		Application_logic_base(std::move(resource))
-	{
-	}
+	std::atomic<double>   gbuffer_cpu_time, shadow_cpu_time;
+	std::atomic<uint32_t> gbuffer_object_count, shadow_object_count;
 
-	virtual std::shared_ptr<Application_logic_base> work();
+	/* Render */
+
+	std::array<Model_renderer, csm_count> shadow_renderer;
+	Model_renderer                        gbuffer_renderer;
+
+	Render_params::Draw_parameters draw_params;
+
+	/* Multi-threading */
+
+	bool                      multi_thread_stop = false;
+	std::counting_semaphore<> frame_start_semaphore;
+
+	void start_threads();
+	void stop_threads();
+
+	// barriers
+	std::barrier<> model_rendering_statistic_barrier{csm_count + 2},  // (csm_count) Shadow Threads, 1 Gbuffer Thread, 1 Post Thread
+		render_thread_barrier{csm_count + 3};  // (csm_count) Shadow Threads, 1 Gbuffer Thread, 1 Post Thread, 1 Main Thread
+
+	// Current Image Index
+	uint32_t current_idx = 0;
+
+	// Threads
+	std::array<std::jthread, csm_count> shadow_thread;
+	std::jthread                        gbuffer_thread;
+	std::jthread                        post_thread;
+
+	// Vulkan Side Synchronization
+
+	std::array<Command_buffer, csm_count> current_shadow_command_buffer;
+	Command_buffer current_gbuffer_command_buffer, current_lighting_command_buffer, current_compute_command_buffer,
+		current_composite_command_buffer;
+
+	Semaphore deferred_semaphore, composite_semaphore, compute_semaphore, lighting_semaphore;
+
+	void shadow_thread_work(uint32_t csm_idx);
+	void gbuffer_thread_work();
+	void post_thread_work();
+
+	/* Draw Logic */
 
 	void draw(uint32_t idx);
 	void ui_logic();
 
-	void draw_shadow(uint32_t idx, const Render_params::Draw_parameters& draw_params);
-	void draw_gbuffer(uint32_t idx, const Render_params::Draw_parameters& draw_params);
-	void draw_lighting(uint32_t idx);
-	void compute_auto_exposure(uint32_t idx);
-	void compute_bloom(uint32_t idx);
-	void draw_composite(uint32_t idx);
+	void draw_lighting(uint32_t idx, const Command_buffer& command_buffer);
+	void compute_auto_exposure(uint32_t idx, const Command_buffer& command_buffer);
+	void compute_bloom(uint32_t idx, const Command_buffer& command_buffer);
+	void draw_composite(uint32_t idx, const Command_buffer& command_buffer);
+
+  public:
+
+	virtual ~App_render_logic()
+	{
+		core->env.device->waitIdle();
+		stop_threads();
+	}
+
+	App_render_logic(std::shared_ptr<Core> resource) :
+		Application_logic_base(std::move(resource)),
+		frame_start_semaphore(0)
+	{
+		deferred_semaphore  = Semaphore(core->env.device);
+		composite_semaphore = Semaphore(core->env.device);
+		compute_semaphore   = Semaphore(core->env.device);
+		lighting_semaphore  = Semaphore(core->env.device);
+
+		start_threads();
+	}
+
+	virtual std::shared_ptr<Application_logic_base> work();
 };
 
 class App_idle_logic : public Application_logic_base

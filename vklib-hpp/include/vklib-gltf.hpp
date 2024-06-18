@@ -94,11 +94,21 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 	};
 
+	enum class Alpha_mode
+	{
+		Opaque = 0,
+		Mask,
+		Blend
+	};
+
 	struct Material
 	{
 		size_t    albedo_idx, metal_roughness_idx, normal_idx, emissive_idx, occlusion_idx;
 		bool      double_sided;
 		glm::vec3 emissive_strength;
+
+		float      alpha_cutoff;
+		Alpha_mode alpha_mode;
 
 		struct Mat_params
 		{
@@ -118,15 +128,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		std::vector<uint32_t> children;
 	};
 
-	struct Sized_buffer
-	{
-		Buffer   buffer;
-		uint32_t count;
-	};
-
 	struct Primitive
 	{
-		uint32_t  material_idx, vertices_idx;
+		uint32_t material_idx, vertex_count;
+
+		uint32_t position_buffer, position_offset;
+		uint32_t normal_buffer, normal_offset;
+		uint32_t tangent_buffer, tangent_offset;
+		uint32_t uv_buffer, uv_offset;
+
 		glm::vec3 min, max;
 	};
 
@@ -160,7 +170,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		std::vector<Node>         nodes;
 		std::vector<Material>     materials;
 		std::vector<Mesh>         meshes;
-		std::vector<Sized_buffer> vertex_buffers;
+		std::vector<Buffer>       vec3_buffers, vec2_buffers;
 		std::vector<Scene>        scenes;
 
 		Descriptor_pool material_descriptor_pool;
@@ -185,12 +195,12 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	  private:
 
-		struct Internal_context
+		struct Mesh_data_context
 		{
-			Loader_context&                                   context;
-			std::unordered_map<Vertex_accessor_set, uint32_t> vertex_map;
-			std::unordered_map<uint32_t, uint32_t>            index_map;
-			std::unordered_map<uint32_t, uint32_t>            texture_map;
+			inline static constexpr size_t max_single_size = 64 * 1048576;  // MAX. 64M per block
+
+			std::vector<std::vector<glm::vec3>> vec3_data;
+			std::vector<std::vector<glm::vec2>> vec2_data;
 		};
 
 		void load(
@@ -198,17 +208,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			const tinygltf::Model&   gltf_model,
 			std::atomic<Load_stage>* stage_info = nullptr
 		);
-		void load_material(Internal_context& loader_context, const tinygltf::Model& gltf_model);
+		void load_material(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 		void load_scene(const tinygltf::Model& gltf_model);
-		void load_meshes(Internal_context& loader_context, const tinygltf::Model& gltf_model);
+		void load_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 
-		void create_descriptor_pool(const Internal_context& context);
+		void generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context);
 
-		Primitive parse_primitive(
-			const tinygltf::Model&     model,
-			const tinygltf::Primitive& primitive,
-			Loader_context&            loader_context
-		);
+		void create_descriptor_pool(const Loader_context& context);
+
+		Primitive parse_primitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, Mesh_data_context& mesh_context);
 
 		Node parse_node(const tinygltf::Model& model, uint32_t idx, const glm::mat4& transformation);
 	};

@@ -30,7 +30,6 @@ void Model_renderer::render_node(
 		if (primitive.material_idx >= model.materials.size()) continue;
 
 		const auto material_idx = primitive.material_idx;
-		const auto vertex_idx   = primitive.vertices_idx;
 
 		const auto &min = primitive.min, &max = primitive.max;
 
@@ -67,7 +66,7 @@ void Model_renderer::render_node(
 			|| !bounding_box.intersect_or_forward(frustum.near))
 			continue;
 
-		Renderer_drawcall drawcall{material_idx, vertex_idx, node_idx};
+		Renderer_drawcall drawcall{node_idx, primitive};
 
 		if (model.materials[primitive.material_idx].double_sided)
 			double_sided.emplace_back(drawcall);
@@ -77,16 +76,17 @@ void Model_renderer::render_node(
 }
 
 Model_renderer::Draw_result Model_renderer::render_gltf(
-	const Command_buffer&                                       command_buffer,
-	const io::mesh::gltf::Model&                                model,
-	const algorithm::frustum_culling::Frustum&                  frustum,
-	const glm::vec3&                                            eye_position,
-	const glm::vec3&                                            eye_path,
-	const Graphics_pipeline&                                    single_pipeline,
-	const Graphics_pipeline&                                    double_pipeline,
-	const Pipeline_layout&                                      pipeline_layout,
-	const std::function<void(const io::mesh::gltf::Material&)>& bind_func,
-	bool                                                        sort_drawcall
+	const Command_buffer&                                        command_buffer,
+	const io::mesh::gltf::Model&                                 model,
+	const algorithm::frustum_culling::Frustum&                   frustum,
+	const glm::vec3&                                             eye_position,
+	const glm::vec3&                                             eye_path,
+	const Graphics_pipeline&                                     single_pipeline,
+	const Graphics_pipeline&                                     double_pipeline,
+	const Pipeline_layout&                                       pipeline_layout,
+	const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
+	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func,
+	bool                                                         sort_drawcall
 )
 {
 	utility::Cpu_timer timer;
@@ -117,12 +117,11 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	// draw a drawlist
 	auto draw = [=](const std::vector<Renderer_drawcall>& draw_list)
 	{
-		uint32_t prev_node = -1, prev_vertex_buffer = -1, prev_material = -1;
+		uint32_t prev_node = -1, prev_vertex_buffer = -1, prev_offset = -1, prev_material = -1;
 
 		for (const auto& drawcall : draw_list)
 		{
-			const auto& node          = model.nodes[drawcall.node_idx];
-			const auto& vertex_buffer = model.vertex_buffers[drawcall.mesh_idx];
+			const auto& node = model.nodes[drawcall.node_idx];
 
 			if (prev_node != drawcall.node_idx)
 			{
@@ -131,19 +130,20 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 				prev_node = drawcall.node_idx;
 			}
 
-			if (drawcall.material_idx != prev_material)
+			if (drawcall.primitive.material_idx != prev_material)
 			{
-				bind_func(model.materials[drawcall.material_idx]);
-				prev_material = drawcall.material_idx;
+				bind_func(model.materials[drawcall.primitive.material_idx]);
+				prev_material = drawcall.primitive.material_idx;
 			}
 
-			if (drawcall.mesh_idx != prev_vertex_buffer)
+			if (drawcall.primitive.position_buffer != prev_vertex_buffer || drawcall.primitive.position_offset != prev_offset)
 			{
-				command_buffer.bind_vertex_buffers(0, {vertex_buffer.buffer}, {0});
-				prev_vertex_buffer = drawcall.mesh_idx;
+				bind_vertex_func(drawcall.primitive);
+				prev_vertex_buffer = drawcall.primitive.position_buffer;
+				prev_offset        = drawcall.primitive.position_offset;
 			}
 
-			command_buffer.draw(0, vertex_buffer.count, 0, 1);
+			command_buffer.draw(0, drawcall.primitive.vertex_count, 0, 1);
 		}
 	};
 

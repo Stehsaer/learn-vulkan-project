@@ -368,13 +368,23 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			{core->render_targets[current_idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
 		);
 
-		auto bind_descriptor = [&](auto material)
+		auto bind_descriptor = [=, this](auto material)
 		{
 			command_buffer.bind_descriptor_sets(
 				vk::PipelineBindPoint::eGraphics,
 				core->Pipeline_set.shadow_pipeline.pipeline_layout,
 				1,
 				{material.albedo_only_descriptor_set}
+			);
+		};
+
+		auto bind_vertex = [=, this](const io::mesh::gltf::Primitive& primitive)
+		{
+			const auto& model = core->params.model;
+			command_buffer->bindVertexBuffers(
+				0,
+				{model->vec3_buffers[primitive.position_buffer], model->vec2_buffers[primitive.uv_buffer]},
+				{primitive.position_offset * sizeof(glm::vec3), primitive.uv_offset * sizeof(glm::vec2)}
 			);
 		};
 
@@ -388,6 +398,7 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
 			core->Pipeline_set.shadow_pipeline.pipeline_layout,
 			bind_descriptor,
+			bind_vertex,
 			core->params.sort_drawcall
 		);
 
@@ -463,6 +474,22 @@ void App_render_logic::gbuffer_thread_work()
 				);
 			};
 
+			auto bind_vertex = [=, this](const io::mesh::gltf::Primitive& primitive)
+			{
+				const auto& model = core->params.model;
+				command_buffer->bindVertexBuffers(
+					0,
+					{model->vec3_buffers[primitive.position_buffer],
+					 model->vec3_buffers[primitive.normal_buffer],
+					 model->vec2_buffers[primitive.uv_buffer],
+					 model->vec3_buffers[primitive.tangent_buffer]},
+					{primitive.position_offset * sizeof(glm::vec3),
+					 primitive.normal_offset * sizeof(glm::vec3),
+					 primitive.uv_offset * sizeof(glm::vec2),
+					 primitive.tangent_offset * sizeof(glm::vec3)}
+				);
+			};
+
 			auto draw_result = gbuffer_renderer.render_gltf(
 				command_buffer,
 				*(core->params.model),
@@ -473,6 +500,7 @@ void App_render_logic::gbuffer_thread_work()
 				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
 				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
 				bind_descriptor,
+				bind_vertex,
 				core->params.sort_drawcall
 			);
 			draw_result.far  = std::max(0.02f, draw_result.far);

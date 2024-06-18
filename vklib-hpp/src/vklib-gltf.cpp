@@ -5,195 +5,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 #pragma region "Utility"
 
-	struct Vertices_array
-	{
-		std::vector<vertex> data;
-		glm::vec3           min{std::numeric_limits<float>::max()}, max{-std::numeric_limits<float>::max()};
-	};
-
-	static Vertices_array load_vertices(
-		const tinygltf::Model&       model,
-		uint32_t                     draw_mode,
-		Vertex_accessor_set          accessor_set,
-		const std::vector<uint32_t>* optional_indices = nullptr
-	)
-	{
-		Vertices_array output;
-
-		const bool has_texcoord = accessor_set.texcoord >= 0;
-
-		const auto &position_accessor = model.accessors[accessor_set.position],
-				   &normal_accessor   = model.accessors[accessor_set.normal],
-				   *uv_accessor       = has_texcoord ? &model.accessors[accessor_set.texcoord] : nullptr;
-
-		auto& data = output.data;
-		data.reserve(position_accessor.count);
-
-		// Condition checking
-		{
-			if (position_accessor.count != normal_accessor.count) throw General_exception("Invalid Accessor Sets");
-
-			if (has_texcoord && (position_accessor.count != uv_accessor->count))
-				throw General_exception("Invalid Accessor Sets");
-
-			if (position_accessor.bufferView < 0 || normal_accessor.bufferView < 0)
-				throw General_exception("Invalid Accessor.BufferView");
-
-			if (has_texcoord && uv_accessor->count < 0) throw General_exception("Invalid Accessor.BufferView");
-		}
-
-		const tinygltf::BufferView &position_buffer_view = model.bufferViews[position_accessor.bufferView],
-								   &normal_buffer_view   = model.bufferViews[normal_accessor.bufferView],
-								   *uv_buffer_view       = nullptr;
-
-		const void* position_data = model.buffers[position_buffer_view.buffer].data.data()
-								  + position_buffer_view.byteOffset + position_accessor.byteOffset;
-		const void* normal_data = model.buffers[normal_buffer_view.buffer].data.data() + normal_buffer_view.byteOffset
-								+ normal_accessor.byteOffset;
-
-		const void* uv_data = nullptr;
-
-		auto count_stride_func = [](int type) -> size_t
-		{
-			return type & 0x0f;
-		};
-
-		const size_t position_stride = count_stride_func(position_accessor.type),
-					 normal_stride   = count_stride_func(normal_accessor.type);
-		size_t uv_stride             = 0;
-
-		if (has_texcoord)
-		{
-			uv_buffer_view = &model.bufferViews[uv_accessor->bufferView];
-
-			uv_data = model.buffers[uv_buffer_view->buffer].data.data() + uv_buffer_view->byteOffset
-					+ uv_accessor->byteOffset;
-
-			uv_stride = count_stride_func(uv_accessor->type);
-		}
-
-		auto get_data_func = [=](size_t idx) -> std::tuple<const glm::vec3, const glm::vec3, const glm::vec2>
-		{
-			const auto position = *(const glm::vec3*)((const float*)position_data + idx * position_stride);
-			const auto normal   = *(const glm::vec3*)((const float*)normal_data + idx * normal_stride);
-			const auto uv
-				= has_texcoord ? *(const glm::vec2*)((const float*)uv_data + idx * uv_stride) : glm::vec2(0.0);
-
-			return {position, normal, uv};
-		};
-
-		auto calc_tangent_no_index = [&](uint32_t i) -> void
-		{
-			auto [position0, normal0, uv0] = get_data_func(i);
-			auto [position1, normal1, uv1] = get_data_func(i + 1);
-			auto [position2, normal2, uv2] = get_data_func(i + 2);
-
-			auto tangent0 = has_texcoord ? algorithm::vertex_tangent(position0, position1, position2, uv0, uv1, uv2)
-										 : glm::vec3(1, 0, 0);
-			auto tangent1 = has_texcoord ? algorithm::vertex_tangent(position1, position0, position2, uv1, uv0, uv2)
-										 : glm::vec3(0, 1, 0);
-			auto tangent2 = has_texcoord ? algorithm::vertex_tangent(position2, position0, position1, uv2, uv0, uv1)
-										 : glm::vec3(0, 0, 1);
-
-			output.min = glm::min(position0, output.min);
-			output.min = glm::min(position1, output.min);
-			output.min = glm::min(position2, output.min);
-
-			output.max = glm::max(position0, output.max);
-			output.max = glm::max(position1, output.max);
-			output.max = glm::max(position2, output.max);
-
-			data.emplace_back(position0, normal0, tangent0, uv0);
-			data.emplace_back(position1, normal1, tangent1, uv1);
-			data.emplace_back(position2, normal2, tangent2, uv2);
-		};
-
-		auto calc_tangent_with_index = [&](uint32_t i) -> void
-		{
-			auto [position0, normal0, uv0] = get_data_func((*optional_indices)[i]);
-			auto [position1, normal1, uv1] = get_data_func((*optional_indices)[i + 1]);
-			auto [position2, normal2, uv2] = get_data_func((*optional_indices)[i + 2]);
-
-			auto tangent0 = has_texcoord ? algorithm::vertex_tangent(position0, position1, position2, uv0, uv1, uv2)
-										 : glm::vec3(1, 0, 0);
-			auto tangent1 = has_texcoord ? algorithm::vertex_tangent(position1, position0, position2, uv1, uv0, uv2)
-										 : glm::vec3(0, 1, 0);
-			auto tangent2 = has_texcoord ? algorithm::vertex_tangent(position2, position0, position1, uv2, uv0, uv1)
-										 : glm::vec3(0, 0, 1);
-
-			output.min = glm::min(position0, output.min);
-			output.min = glm::min(position1, output.min);
-			output.min = glm::min(position2, output.min);
-
-			output.max = glm::max(position0, output.max);
-			output.max = glm::max(position1, output.max);
-			output.max = glm::max(position2, output.max);
-
-			data.emplace_back(position0, normal0, tangent0, uv0);
-			data.emplace_back(position1, normal1, tangent1, uv1);
-			data.emplace_back(position2, normal2, tangent2, uv2);
-		};
-
-		auto parse_vertices_no_index = [&](uint32_t draw_mode)
-		{
-			switch (draw_mode)
-			{
-			case TINYGLTF_MODE_TRIANGLES:
-			{
-				for (uint32_t i = 0; i < position_accessor.count; i += 3)
-				{
-					calc_tangent_no_index(i);
-				}
-				break;
-			}
-			case TINYGLTF_MODE_TRIANGLE_STRIP:
-			{
-				for (uint32_t i = 0; i < position_accessor.count - 3; i++)
-				{
-					calc_tangent_no_index(i);
-				}
-			}
-			default:
-				break;
-			}
-		};
-
-		auto parse_vertices_with_index = [&](uint32_t draw_mode)
-		{
-			switch (draw_mode)
-			{
-			case TINYGLTF_MODE_TRIANGLES:
-			{
-				for (uint32_t i = 0; i < optional_indices->size(); i += 3)
-				{
-					calc_tangent_with_index(i);
-				}
-				break;
-			}
-			case TINYGLTF_MODE_TRIANGLE_STRIP:
-			{
-				for (uint32_t i = 0; i < optional_indices->size() - 3; i++)
-				{
-					calc_tangent_with_index(i);
-				}
-			}
-			default:
-				break;
-			}
-		};
-
-		if (optional_indices == nullptr)
-		{
-			parse_vertices_no_index(draw_mode);
-		}
-		else
-		{
-			parse_vertices_with_index(draw_mode);
-		}
-
-		return output;
-	}
-
 	static glm::mat4 node_transform(const tinygltf::Node& node)
 	{
 		glm::mat4 mat(1.0);
@@ -211,8 +22,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			mat = trans * mat;
 		}
 
-		if (node.scale.size() == 3)
-			mat = glm::scale(glm::mat4(1.0), glm::vec3(glm::make_vec3(node.scale.data()))) * mat;
+		if (node.scale.size() == 3) mat = glm::scale(glm::mat4(1.0), glm::vec3(glm::make_vec3(node.scale.data()))) * mat;
 
 		if (node.translation.size() == 3)
 			mat = glm::translate(glm::mat4(1.0), glm::vec3(glm::make_vec3(node.translation.data()))) * mat;
@@ -227,7 +37,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	Primitive Model::parse_primitive(
 		const tinygltf::Model&     model,
 		const tinygltf::Primitive& primitive,
-		Loader_context&            loader_context
+		Mesh_data_context&         mesh_context
 	)
 	{
 		Primitive output_primitive;
@@ -238,22 +48,17 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		auto find_position = primitive.attributes.find("POSITION"), find_normal = primitive.attributes.find("NORMAL"),
 			 find_uv = primitive.attributes.find("TEXCOORD_0");
 
-		if (auto end = primitive.attributes.end(); find_position == end || find_normal == end)
+		if (auto end = primitive.attributes.end(); find_position == end)
 		{
-			throw General_exception(std::format(
-				"Attribute Missing: {} {}",
-				find_position == end ? "POSITION" : "",
-				find_normal == end ? "NORMAL" : ""
-			));
+			throw General_exception("Missing Required Attribute: POSITION");
 		}
 
-		const bool has_indices = primitive.indices >= 0, has_texcoord = find_uv != primitive.attributes.end();
-
-		auto accessor_set
-			= Vertex_accessor_set(find_position->second, find_normal->second, has_texcoord ? find_uv->second : -1);
+		const bool has_indices = primitive.indices >= 0, has_texcoord = find_uv != primitive.attributes.end(),
+				   has_normal = find_normal != primitive.attributes.end();
 
 		std::vector<uint32_t> indices;
 
+		// parse indices data
 		if (has_indices)
 		{
 			const auto& accessor    = model.accessors[primitive.indices];
@@ -286,40 +91,242 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			}
 		}
 
-		auto command_buffer           = Command_buffer(loader_context.command_pool);
-		auto data                     = load_vertices(model, primitive.mode, accessor_set, has_indices ? &indices : nullptr);
-		output_primitive.vertices_idx = vertex_buffers.size();
+		uint32_t vertex_count = has_indices ? indices.size() : model.accessors[find_position->second].count;
 
-		output_primitive.min = data.min;
-		output_primitive.max = data.max;
+		auto parse_data_no_index = [=]<typename T>(std::vector<T>& list, const void* data)
+		{
+			const auto* dat = reinterpret_cast<const T*>(data);
 
-		Buffer staging_buffer, vertex_buffer;
+			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
+			{
+				list.resize(list.size() + vertex_count);
+				std::copy(dat, dat + vertex_count, list.begin() + list.size() - vertex_count);
+			}
+			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+			{
+				for (auto item : Range(vertex_count - 2))
+				{
+					list.emplace_back(dat[item]);
+					list.emplace_back(dat[item + 1]);
+					list.emplace_back(dat[item + 2]);
+				}
+			}
+			else
+				throw General_exception("Unsupported TinyGLTF Vertex Mode");
+		};
 
-		vertex_buffer = Buffer(
-			loader_context.allocator,
-			data.data.size() * sizeof(vertex),
-			vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
-			vk::SharingMode::eExclusive,
-			VMA_MEMORY_USAGE_GPU_ONLY
-		);
+		auto parse_data_with_index = [=]<typename T>(std::vector<T>& list, const void* data)
+		{
+			const auto* dat = reinterpret_cast<const T*>(data);
 
-		staging_buffer = Buffer(
-			loader_context.allocator,
-			data.data.size() * sizeof(vertex),
-			vk::BufferUsageFlagBits::eTransferSrc,
-			vk::SharingMode::eExclusive,
-			VMA_MEMORY_USAGE_CPU_TO_GPU
-		);
-		staging_buffer << data.data;
+			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
+			{
+				for (auto i : Range(vertex_count))
+				{
+					list.emplace_back(dat[indices[i]]);
+				}
+			}
+			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+			{
+				for (auto item : Range(vertex_count - 2))
+				{
+					list.emplace_back(dat[indices[item]]);
+					list.emplace_back(dat[indices[item + 1]]);
+					list.emplace_back(dat[indices[item + 2]]);
+				}
+			}
+			else
+				throw General_exception("Unsupported TinyGLTF Vertex Mode");
+		};
 
-		command_buffer.begin(true);
-		command_buffer.copy_buffer(vertex_buffer, staging_buffer, 0, 0, data.data.size() * sizeof(vertex));
-		command_buffer.end();
+		// prevent empty data
+		if (mesh_context.vec3_data.empty())
+		{
+			mesh_context.vec3_data.emplace_back();
+			mesh_context.vec3_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec3));
+		}
+		if (mesh_context.vec2_data.empty())
+		{
+			mesh_context.vec2_data.emplace_back();
+			mesh_context.vec2_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec2));
+		}
 
-		loader_context.command_buffers.push_back(command_buffer);
-		loader_context.staging_buffers.push_back(staging_buffer);
+		auto reserve_vec3_data = [&]
+		{
+			if (vertex_count * 3 * sizeof(glm::vec3) > Mesh_data_context::max_single_size)
+			{
+				if (mesh_context.vec3_data.back().size() != 0)
+				{
+					mesh_context.vec3_data.emplace_back();
+				}
+				mesh_context.vec3_data.back().reserve(vertex_count * 3);
 
-		vertex_buffers.push_back(Sized_buffer(vertex_buffer, data.data.size()));
+				return;
+			}
+
+			if ((mesh_context.vec3_data.back().size() + vertex_count * 3) * sizeof(glm::vec3) > Mesh_data_context::max_single_size)
+			{
+				mesh_context.vec3_data.emplace_back();
+				mesh_context.vec3_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec3));
+			}
+		};
+
+		auto reserve_vec2_data = [&]
+		{
+			if (vertex_count * 3 * sizeof(glm::vec2) > Mesh_data_context::max_single_size)
+			{
+				if (mesh_context.vec2_data.back().size() != 0)
+				{
+					mesh_context.vec2_data.emplace_back();
+				}
+				mesh_context.vec2_data.back().reserve(vertex_count * 3);
+
+				return;
+			}
+
+			if ((mesh_context.vec2_data.back().size() + vertex_count * 3) * sizeof(glm::vec2) > Mesh_data_context::max_single_size)
+			{
+				mesh_context.vec2_data.emplace_back();
+				mesh_context.vec2_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec2));
+			}
+		};
+
+		// parse position. returns buffer instead of pointer --> prevent vector reallocation
+		const auto [position_buffer, position_offset] = [&]
+		{
+			reserve_vec3_data();
+
+			output_primitive.position_buffer = mesh_context.vec3_data.size() - 1;
+			output_primitive.position_offset = mesh_context.vec3_data.back().size();
+			auto&       position             = mesh_context.vec3_data.back();
+			const auto& size                 = position.size();
+
+			const auto& accessor    = model.accessors[find_position->second];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			const auto& buffer      = model.buffers[buffer_view.buffer];
+			const auto* buffer_data
+				= reinterpret_cast<const glm::vec3*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
+
+			output_primitive.min = glm::make_vec3(accessor.minValues.data());
+			output_primitive.max = glm::make_vec3(accessor.maxValues.data());
+
+			if (has_indices)
+				parse_data_with_index(position, buffer_data);
+			else
+				parse_data_no_index(position, buffer_data);
+
+			return std::tuple{position, size};
+		}();
+
+		// parse normal
+		{
+			reserve_vec3_data();
+
+			output_primitive.normal_buffer = mesh_context.vec3_data.size() - 1;
+			output_primitive.normal_offset = mesh_context.vec3_data.back().size();
+			auto& normal                   = mesh_context.vec3_data.back();
+
+			// has normal, directly parse the data
+			if (has_normal)
+			{
+				const auto& accessor    = model.accessors[find_normal->second];
+				const auto& buffer_view = model.bufferViews[accessor.bufferView];
+				const auto& buffer      = model.buffers[buffer_view.buffer];
+				const auto* buffer_data
+					= reinterpret_cast<const glm::vec3*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
+
+				if (has_indices)
+					parse_data_with_index(normal, buffer_data);
+				else
+					parse_data_no_index(normal, buffer_data);
+			}
+			else
+			{
+				// manual generate data
+				for (auto idx = 0u; idx < vertex_count; idx += 3)
+				{
+					const auto [pos0, pos1, pos2] = std::tuple{
+						position_buffer[position_offset + idx],
+						position_buffer[position_offset + idx + 1],
+						position_buffer[position_offset + idx + 2]
+					};
+					const auto normal_vector = glm::normalize(glm::cross(pos1 - pos0, pos2 - pos0));
+
+					normal.push_back(normal_vector);
+					normal.push_back(normal_vector);
+					normal.push_back(normal_vector);
+				}
+			}
+		}
+
+		const auto uv_data = [&]
+		{
+			reserve_vec2_data();
+
+			output_primitive.uv_buffer = mesh_context.vec2_data.size() - 1;
+			output_primitive.uv_offset = mesh_context.vec2_data.back().size();
+			auto& uv                   = mesh_context.vec2_data.back();
+
+			const auto* data = uv.data() + uv.size();
+
+			// has normal, directly parse the data
+			if (has_texcoord)
+			{
+				const auto& accessor    = model.accessors[find_uv->second];
+				const auto& buffer_view = model.bufferViews[accessor.bufferView];
+				const auto& buffer      = model.buffers[buffer_view.buffer];
+				const auto* buffer_data
+					= reinterpret_cast<const glm::vec2*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
+
+				if (has_indices)
+					parse_data_with_index(uv, buffer_data);
+				else
+					parse_data_no_index(uv, buffer_data);
+			}
+			else
+			{
+				// manual generate data
+				for (auto _ : Range(vertex_count / 3))
+				{
+					uv.emplace_back(0.0, 0.0);
+					uv.emplace_back(0.0, 1.0);
+					uv.emplace_back(1.0, 0.0);
+				}
+			}
+
+			return std::span(data, vertex_count);
+		}();
+
+		// generate tangent data
+		{
+			reserve_vec3_data();
+
+			output_primitive.tangent_buffer = mesh_context.vec3_data.size() - 1;
+			output_primitive.tangent_offset = mesh_context.vec3_data.back().size();
+			auto& tangent                   = mesh_context.vec3_data.back();
+
+			for (auto idx = 0u; idx < vertex_count; idx += 3)
+			{
+				const auto [pos0, pos1, pos2] = std::tuple{
+					position_buffer[position_offset + idx],
+					position_buffer[position_offset + idx + 1],
+					position_buffer[position_offset + idx + 2]
+				};
+
+				const auto [uv0, uv1, uv2]                = std::tuple{uv_data[idx], uv_data[idx + 1], uv_data[idx + 2]};
+				const auto [tangent0, tangent1, tangent2] = std::tuple{
+					algorithm::vertex_tangent(pos0, pos1, pos2, uv0, uv1, uv2),
+					algorithm::vertex_tangent(pos1, pos0, pos2, uv1, uv0, uv2),
+					algorithm::vertex_tangent(pos2, pos1, pos0, uv2, uv1, uv0)
+				};
+
+				tangent.push_back(tangent0);
+				tangent.push_back(tangent1);
+				tangent.push_back(tangent2);
+			}
+		}
+
+		output_primitive.vertex_count = vertex_count;
 
 		return output_primitive;
 	}
@@ -342,18 +349,30 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		return output;
 	}
 
-	void Model::load_material(Internal_context& context, const tinygltf::Model& gltf_model)
+	void Model::load_material(Loader_context& context, const tinygltf::Model& gltf_model)
 	{
 		for (const auto& image : gltf_model.images)
 		{
 			Texture tex;
-			tex.parse(image, context.context);
+			tex.parse(image, context);
 			textures.push_back(tex);
 		}
 		for (const auto& material : gltf_model.materials)
 		{
 			Material output_material;
+
+			// Set properties
 			output_material.double_sided = material.doubleSided;
+			output_material.alpha_cutoff = material.alphaCutoff;
+
+			output_material.alpha_mode = [=]
+			{
+				if (material.alphaMode == "OPAQUE") return Alpha_mode::Opaque;
+				if (material.alphaMode == "MASK") return Alpha_mode::Mask;
+				if (material.alphaMode == "Blend") return Alpha_mode::Blend;
+
+				throw General_exception("Invalid Alpha Mode Property");
+			}();
 
 			// Emissive
 			output_material.emissive_strength = glm::make_vec3(material.emissiveFactor.data());
@@ -366,7 +385,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			}
 
 			output_material.uniform_buffer = Buffer(
-				context.context.allocator,
+				context.allocator,
 				sizeof(Material::Mat_params),
 				vk::BufferUsageFlagBits::eUniformBuffer,
 				vk::SharingMode::eExclusive,
@@ -381,18 +400,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				output_material.normal_idx = texture_views.size();
 
 				Texture tex;
-				tex.generate(127, 127, 255, 0, context.context);
+				tex.generate(127, 127, 255, 0, context);
 
 				textures.push_back(tex);
-				texture_views.emplace_back(context.context, tex, vk::ComponentMapping());
+				texture_views.emplace_back(context, tex, vk::ComponentMapping());
 			}
 			else
 			{
-				texture_views.emplace_back(
-					context.context,
-					textures[gltf_model.textures[material.normalTexture.index].source],
-					vk::ComponentMapping()
-				);
+				texture_views
+					.emplace_back(context, textures[gltf_model.textures[material.normalTexture.index].source], vk::ComponentMapping());
 			}
 
 			// Albedo
@@ -406,16 +422,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.baseColorFactor[1], 0, 255),
 					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.baseColorFactor[2], 0, 255),
 					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.baseColorFactor[3], 0, 255),
-					context.context
+					context
 				);
 
 				textures.push_back(tex);
-				texture_views.emplace_back(context.context, tex, vk::ComponentMapping());
+				texture_views.emplace_back(context, tex, vk::ComponentMapping());
 			}
 			else
 			{
 				texture_views.emplace_back(
-					context.context,
+					context,
 					textures[gltf_model.textures[material.pbrMetallicRoughness.baseColorTexture.index].source],
 					vk::ComponentMapping()
 				);
@@ -433,16 +449,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.metallicFactor, 0, 255),
 					0,
 					0,
-					context.context
+					context
 				);
 
 				textures.push_back(tex);
-				texture_views.emplace_back(context.context, tex, vk::ComponentMapping());
+				texture_views.emplace_back(context, tex, vk::ComponentMapping());
 			}
 			else
 			{
 				texture_views.emplace_back(
-					context.context,
+					context,
 					textures[gltf_model.textures[material.pbrMetallicRoughness.metallicRoughnessTexture.index].source],
 					vk::ComponentMapping(vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB)
 				);
@@ -453,15 +469,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			if (material.occlusionTexture.index < 0 || material.occlusionTexture.index >= (int)gltf_model.images.size())
 			{
 				Texture tex;
-				tex.generate(255, 255, 255, 255, context.context);
+				tex.generate(255, 255, 255, 255, context);
 
 				textures.push_back(tex);
-				texture_views.emplace_back(context.context, tex, vk::ComponentMapping());
+				texture_views.emplace_back(context, tex, vk::ComponentMapping());
 			}
 			else
 			{
 				texture_views.emplace_back(
-					context.context,
+					context,
 					textures[gltf_model.textures[material.occlusionTexture.index].source],
 					vk::ComponentMapping()
 				);
@@ -477,16 +493,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 					std::clamp<int>(255 * material.emissiveFactor[1], 0, 255),
 					std::clamp<int>(255 * material.emissiveFactor[2], 0, 255),
 					255,
-					context.context
+					context
 				);
 
 				textures.push_back(tex);
-				texture_views.emplace_back(context.context, tex, vk::ComponentMapping());
+				texture_views.emplace_back(context, tex, vk::ComponentMapping());
 			}
 			else
 			{
 				texture_views.emplace_back(
-					context.context,
+					context,
 					textures[gltf_model.textures[material.emissiveTexture.index].source],
 					vk::ComponentMapping()
 				);
@@ -513,8 +529,10 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 	}
 
-	void Model::load_meshes(Internal_context& loader_context, const tinygltf::Model& gltf_model)
+	void Model::load_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model)
 	{
+		Mesh_data_context mesh_context;
+
 		for (const auto& mesh : gltf_model.meshes)
 		{
 			Mesh output_mesh;
@@ -522,34 +540,102 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// Parse all primitives
 			for (const auto& primitive : mesh.primitives)
 			{
-				output_mesh.primitives.push_back(parse_primitive(gltf_model, primitive, loader_context.context));
+				output_mesh.primitives.push_back(parse_primitive(gltf_model, primitive, mesh_context));
 			}
 
 			meshes.push_back(output_mesh);
 		}
+
+		generate_buffers(loader_context, mesh_context);
 	}
 
-	void Model::create_descriptor_pool(const Internal_context& context)
+	void Model::generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context)
+	{
+		const Command_buffer command(loader_context.command_pool);
+
+		command.begin(true);
+
+		for (const auto& buf : mesh_context.vec3_data)
+		{
+			const auto size = buf.size() * sizeof(glm::vec3);
+
+			const Buffer staging_buffer(
+				loader_context.allocator,
+				size,
+				vk::BufferUsageFlagBits::eTransferSrc,
+				vk::SharingMode::eExclusive,
+				VMA_MEMORY_USAGE_CPU_TO_GPU
+			);
+
+			staging_buffer << buf;
+
+			const Buffer vertex_buffer(
+				loader_context.allocator,
+				size,
+				vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+				vk::SharingMode::eExclusive,
+				VMA_MEMORY_USAGE_GPU_ONLY
+			);
+
+			command.copy_buffer(vertex_buffer, staging_buffer, 0, 0, size);
+
+			vec3_buffers.push_back(vertex_buffer);
+			loader_context.staging_buffers.push_back(staging_buffer);
+		}
+
+		for (const auto& buf : mesh_context.vec2_data)
+		{
+			const auto size = buf.size() * sizeof(glm::vec2);
+
+			const Buffer staging_buffer(
+				loader_context.allocator,
+				size,
+				vk::BufferUsageFlagBits::eTransferSrc,
+				vk::SharingMode::eExclusive,
+				VMA_MEMORY_USAGE_CPU_TO_GPU
+			);
+
+			staging_buffer << buf;
+
+			const Buffer vertex_buffer(
+				loader_context.allocator,
+				size,
+				vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+				vk::SharingMode::eExclusive,
+				VMA_MEMORY_USAGE_GPU_ONLY
+			);
+
+			command.copy_buffer(vertex_buffer, staging_buffer, 0, 0, size);
+
+			vec2_buffers.push_back(vertex_buffer);
+			loader_context.staging_buffers.push_back(staging_buffer);
+		}
+
+		command.end();
+
+		loader_context.command_buffers.push_back(command);
+	}
+
+	void Model::create_descriptor_pool(const Loader_context& context)
 	{
 		// Descriptor Pool
 		std::array<vk::DescriptorPoolSize, 2> pool_size;
 		pool_size[0].setType(vk::DescriptorType::eCombinedImageSampler).setDescriptorCount(materials.size() * 6 + 1);
 		pool_size[1].setType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(materials.size() + 1);
 
-		material_descriptor_pool = Descriptor_pool(context.context.device, pool_size, materials.size() * 2 + 1);
+		material_descriptor_pool = Descriptor_pool(context.device, pool_size, materials.size() * 2 + 1);
 
 		for (auto& material : materials)
 		{
 			// Create Descriptor Set
-			auto layouts             = Descriptor_set_layout::to_array({context.context.texture_descriptor_set_layout});
-			auto layouts_albedo_only = Descriptor_set_layout::to_array({context.context.albedo_only_layout});
+			auto layouts             = Descriptor_set_layout::to_array({context.texture_descriptor_set_layout});
+			auto layouts_albedo_only = Descriptor_set_layout::to_array({context.albedo_only_layout});
 
-			material.descriptor_set
-				= Descriptor_set::create_multiple(context.context.device, material_descriptor_pool, layouts)[0];
+			material.descriptor_set = Descriptor_set::create_multiple(context.device, material_descriptor_pool, layouts)[0];
 
-			if (context.context.albedo_only_layout.is_valid())
+			if (context.albedo_only_layout.is_valid())
 				material.albedo_only_descriptor_set = Descriptor_set::create_multiple(
-					context.context.device,
+					context.device,
 					material_descriptor_pool,
 					layouts_albedo_only
 
@@ -576,7 +662,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				.setDescriptorCount(1)
 				.setPImageInfo(descriptor_image_write_info.data() + 0)
 				.setDstSet(material.descriptor_set);
-			if (context.context.albedo_only_layout.is_valid())
+			if (context.albedo_only_layout.is_valid())
 				write_info[4]
 					.setDstBinding(0)
 					.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
@@ -619,7 +705,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				.setPBufferInfo(&descriptor_uniform_write_info)
 				.setDstSet(material.descriptor_set);
 
-			context.context.device->updateDescriptorSets(write_info, {});
+			context.device->updateDescriptorSets(write_info, {});
 		}
 	}
 
@@ -629,25 +715,23 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		std::atomic<Load_stage>* stage_info
 	)
 	{
-		Internal_context context(loader_context);
 
 		// parse Materials
 		if (stage_info) *stage_info = Load_stage::Load_material;
-		load_material(context, gltf_model);
+		load_material(loader_context, gltf_model);
 
 		// parse Meshes
 		if (stage_info) *stage_info = Load_stage::Load_mesh;
-		load_meshes(context, gltf_model);
+		load_meshes(loader_context, gltf_model);
 
 		const auto submit_buffer = Command_buffer::to_vector(loader_context.command_buffers);
-
 		loader_context.transfer_queue.submit(vk::SubmitInfo().setCommandBuffers(submit_buffer));
 
 		// parse nodes
 		load_scene(gltf_model);
 
 		if (stage_info) *stage_info = Load_stage::Transfer;
-		create_descriptor_pool(context);
+		create_descriptor_pool(loader_context);
 
 		loader_context.transfer_queue.waitIdle();
 		loader_context.command_buffers.clear();

@@ -4,11 +4,13 @@
 
 struct Renderer_drawcall
 {
-	uint32_t material_idx, mesh_idx, node_idx;
+	uint32_t                  node_idx;
+	io::mesh::gltf::Primitive primitive;
 
 	auto operator<=>(const Renderer_drawcall& other) const
 	{
-		return std::tie(material_idx, mesh_idx) <=> std::tie(other.material_idx, other.mesh_idx);
+		return std::tie(primitive.material_idx, primitive.position_buffer, primitive.position_offset)
+		   <=> std::tie(other.primitive.material_idx, other.primitive.position_buffer, other.primitive.position_offset);
 	}
 };
 
@@ -27,16 +29,17 @@ class Model_renderer
 	};
 
 	Draw_result render_gltf(
-		const Command_buffer&                                       command_buffer,
-		const io::mesh::gltf::Model&                                model,
-		const algorithm::frustum_culling::Frustum&                  frustum,
-		const glm::vec3&                                            eye_position,
-		const glm::vec3&                                            eye_path,
-		const Graphics_pipeline&                                    single_pipeline,
-		const Graphics_pipeline&                                    double_pipeline,
-		const Pipeline_layout&                                      pipeline_layout,
-		const std::function<void(const io::mesh::gltf::Material&)>& bind_func,
-		bool                                                        sort_drawcall
+		const Command_buffer&                                        command_buffer,
+		const io::mesh::gltf::Model&                                 model,
+		const algorithm::frustum_culling::Frustum&                   frustum,
+		const glm::vec3&                                             eye_position,
+		const glm::vec3&                                             eye_path,
+		const Graphics_pipeline&                                     single_pipeline,
+		const Graphics_pipeline&                                     double_pipeline,
+		const Pipeline_layout&                                       pipeline_layout,
+		const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
+		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func,
+		bool                                                         sort_drawcall
 	);
 
 	void render_node(

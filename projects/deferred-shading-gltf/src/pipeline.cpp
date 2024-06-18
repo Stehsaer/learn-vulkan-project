@@ -102,11 +102,12 @@ void Shadow_pipeline::create(const Environment& env)
 		create_info.setStages(shader_module_infos);
 
 		std::array<vk::VertexInputAttributeDescription, 2> attributes;
-		attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(offsetof(io::mesh::gltf::vertex, position));
-		attributes[1].setBinding(0).setFormat(vk::Format::eR32G32Sfloat).setLocation(1).setOffset(offsetof(io::mesh::gltf::vertex, uv));
+		attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
+		attributes[1].setBinding(1).setFormat(vk::Format::eR32G32Sfloat).setLocation(1).setOffset(0);
 
-		std::array<vk::VertexInputBindingDescription, 1> bindings;
-		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(io::mesh::gltf::vertex));
+		std::array<vk::VertexInputBindingDescription, 2> bindings;
+		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+		bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec2));
 
 		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo().setVertexAttributeDescriptions(attributes).setVertexBindingDescriptions(bindings);
 		create_info.setPVertexInputState(&vertex_input_state);
@@ -317,15 +318,19 @@ void Gbuffer_pipeline::create(const Environment& env)
 
 		std::array<vk::VertexInputAttributeDescription, 4> attributes;
 		{
-			attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(offsetof(io::mesh::gltf::vertex, position));
-			attributes[1].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(1).setOffset(offsetof(io::mesh::gltf::vertex, normal));
-			attributes[2].setBinding(0).setFormat(vk::Format::eR32G32Sfloat).setLocation(2).setOffset(offsetof(io::mesh::gltf::vertex, uv));
-			attributes[3].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(3).setOffset(offsetof(io::mesh::gltf::vertex, tangent));
+			attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
+			attributes[1].setBinding(1).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(1).setOffset(0);
+			attributes[2].setBinding(2).setFormat(vk::Format::eR32G32Sfloat).setLocation(2).setOffset(0);
+			attributes[3].setBinding(3).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(3).setOffset(0);
 		}
 
-		std::array<vk::VertexInputBindingDescription, 1> bindings;
-
-		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(io::mesh::gltf::vertex));
+		std::array<vk::VertexInputBindingDescription, 4> bindings;
+		{
+			bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+			bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+			bindings[2].setBinding(2).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec2));
+			bindings[3].setBinding(3).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+		}
 
 		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo().setVertexAttributeDescriptions(attributes).setVertexBindingDescriptions(bindings);
 		create_info.setPVertexInputState(&vertex_input_state);

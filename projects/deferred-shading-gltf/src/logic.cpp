@@ -2,6 +2,9 @@
 #include "binary-resource.hpp"
 #include <filesystem>
 
+#define LOAD_DEFAULT_MODEL_TOKEN "**cmd-load-built-in--model**"
+#define LOAD_DEFUALT_HDRI_TOKEN "**cmd-load-built-in--hdri**"
+
 #pragma region "App Idle Logic"
 
 std::shared_ptr<Application_logic_base> App_idle_logic::work()
@@ -38,9 +41,9 @@ std::shared_ptr<Application_logic_base> App_idle_logic::work()
 				if (extension == ".hdr") return std::make_shared<App_load_hdri_logic>(core, file_path_str);
 			}
 
-			if (load_builtin_model) return std::make_shared<App_load_model_logic>(core, "**built-in--damaged-helmet**");
+			if (load_builtin_model) return std::make_shared<App_load_model_logic>(core, LOAD_DEFAULT_MODEL_TOKEN);
 
-			if (load_builtin_hdri) return std::make_shared<App_load_hdri_logic>(core, "**built-in--hdri**");
+			if (load_builtin_hdri) return std::make_shared<App_load_hdri_logic>(core, LOAD_DEFUALT_HDRI_TOKEN);
 		}
 
 		core->ui_controller.imgui_new_frame();
@@ -163,7 +166,7 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 		}
 
 		const auto wait_fence_result = core->env.device->waitForFences({core->render_targets.next_frame_fence}, true, 1e10);
-		if (wait_fence_result != vk::Result::eSuccess) throw General_exception("Fence wait timeout!");
+		if (wait_fence_result != vk::Result::eSuccess) throw Exception("Fence wait timeout!");
 		core->env.device->resetFences({core->render_targets.next_frame_fence});
 
 		// Record Command Buffer
@@ -310,16 +313,20 @@ void App_render_logic::draw(uint32_t idx)
 
 		core->render_targets[idx].update(core->env, shadow_uniforms, gbuffer_camera, lighting_params, composite_param);
 
-		// set variables
+		// Setup variables
 		current_idx          = idx;
 		gbuffer_cpu_time     = 0;
 		gbuffer_object_count = 0;
+		gbuffer_vertex_count = 0;
 		shadow_cpu_time      = 0;
 		shadow_object_count  = 0;
+		shadow_vertex_count  = 0;
 	}
 
+	// Triggers sub-threads
 	frame_start_semaphore.release(csm_count + 2);
 
+	// Synchronize multiple threads
 	render_thread_barrier.arrive_and_wait();
 }
 
@@ -388,14 +395,20 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			);
 		};
 
+		const auto separate = core->params.separate_alpha_cutoff;
+
 		auto draw_result = shadow_renderer[csm_idx].render_gltf(
 			command_buffer,
 			*core->params.model,
 			draw_params.shadow_frustums[csm_idx],
 			{0, 0, 0},
 			-draw_params.light_dir,
-			core->Pipeline_set.shadow_pipeline.pipeline,
-			core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
+			separate ? core->Pipeline_set.shadow_pipeline.single_sided_pipeline
+					 : core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
+			core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
+			separate ? core->Pipeline_set.shadow_pipeline.double_sided_pipeline
+					 : core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
+			core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
 			core->Pipeline_set.shadow_pipeline.pipeline_layout,
 			bind_descriptor,
 			bind_vertex,
@@ -411,8 +424,10 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 
 		core->params.shadow_far[csm_idx]  = draw_result.far;
 		core->params.shadow_near[csm_idx] = draw_result.near;
+
 		shadow_cpu_time += draw_result.time_consumed;
 		shadow_object_count += shadow_renderer[csm_idx].get_object_count();
+		shadow_vertex_count += draw_result.vertex_count;
 
 		current_shadow_command_buffer[csm_idx] = command_buffer;
 
@@ -490,14 +505,20 @@ void App_render_logic::gbuffer_thread_work()
 				);
 			};
 
+			const auto separate = core->params.separate_alpha_cutoff;
+
 			auto draw_result = gbuffer_renderer.render_gltf(
 				command_buffer,
 				*(core->params.model),
 				draw_params.gbuffer_frustum,
 				draw_params.eye_position,
 				draw_params.eye_path,
-				core->Pipeline_set.gbuffer_pipeline.pipeline,
-				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
+				separate ? core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline
+						 : core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
+				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
+				separate ? core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline
+						 : core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
+				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
 				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
 				bind_descriptor,
 				bind_vertex,
@@ -510,9 +531,10 @@ void App_render_logic::gbuffer_thread_work()
 
 			if (core->params.auto_adjust_near_plane) core->params.near = draw_result.near;
 			if (core->params.auto_adjust_far_plane) core->params.far = draw_result.far;
-			gbuffer_object_count = gbuffer_renderer.get_object_count();
 
+			gbuffer_object_count = gbuffer_renderer.get_object_count();
 			gbuffer_cpu_time = draw_result.time_consumed;
+			gbuffer_vertex_count = draw_result.vertex_count;
 		}
 		command_buffer.end_render_pass();
 
@@ -1016,14 +1038,32 @@ void App_render_logic::ui_logic()
 
 	params.camera_controller.update(ImGui::GetIO());
 
-	// Utility Display
+	// Main Control
+	{
+		ImGui::SetNextWindowPos({20, 20}, ImGuiCond_Always, {0, 0});
+		ImGui::Begin("Main Control Window", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
+		{
+			ImGui::Checkbox("Control", &show_control);
+			ImGui::Checkbox("Statistics", &show_panel);
+			ImGui::Checkbox("Feature List", &show_feature);
+		}
+		ImGui::End();
+	}
+
+	// Status Display
+	if (show_panel)
 	{
 		const float framerate = ImGui::GetIO().Framerate;
 		const float dt        = ImGui::GetIO().DeltaTime;
 		ImGui::SetNextWindowPos({20, (float)swapchain.extent.height - 20}, ImGuiCond_Always, {0, 1});
-		ImGui::Begin("Framerate", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize);
+		ImGui::Begin(
+			"Status Display Window",
+			nullptr,
+			ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize
+		);
 		{
 			ImGui::Text("Objects: G=%d/S=%d", gbuffer_object_count.load(), shadow_object_count.load());
+			ImGui::Text("Tris: G=%d/S=%d", gbuffer_vertex_count / 3, shadow_vertex_count / 3);
 			ImGui::Text("FPS: %.1f", framerate);
 			ImGui::Text("DT: %.1fms", dt * 1000);
 			ImGui::Text("CPU Time: %.0fus", (gbuffer_cpu_time + shadow_cpu_time) * 1000);
@@ -1032,8 +1072,9 @@ void App_render_logic::ui_logic()
 	}
 
 	// Control
+	if (show_control)
 	{
-		if (ImGui::Begin("Control"))
+		if (ImGui::Begin("Control", &show_control, ImGuiWindowFlags_NoCollapse))
 		{
 			ImGui::SeparatorText("Lighting");
 			{
@@ -1127,7 +1168,30 @@ void App_render_logic::ui_logic()
 				}
 				ImGui::EndDisabled();
 				ImGui::Checkbox("Sort Drawcalls", &params.sort_drawcall);
+				ImGui::Checkbox("No Opaque Shader", &params.separate_alpha_cutoff);
 			}
+		}
+		ImGui::End();
+	}
+
+	// Feature list
+	if (show_feature)
+	{
+		if (ImGui::Begin("Feature List", &show_feature, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			auto display_enable_status = [](const char* prefix, bool enabled)
+			{
+				ImGui::BulletText("%s: ", prefix);
+				ImGui::SameLine();
+
+				if (enabled)
+					ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Enabled");
+				else
+					ImGui::TextColored({1.0, 0.3, 0.0, 1.0}, "Disabled");
+			};
+
+			display_enable_status("10-bit Output", core->env.swapchain.feature.color_depth_10_enabled);
+			display_enable_status("HDR Output", core->env.swapchain.feature.hdr_enabled);
 		}
 		ImGui::End();
 	}
@@ -1165,7 +1229,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 
 		try
 		{
-			if (load_path == "**built-in--damaged-helmet**")
+			if (load_path == LOAD_DEFAULT_MODEL_TOKEN)
 			{
 				core->params.model->load_gltf_memory(
 					loader_context,
@@ -1181,7 +1245,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 					core->params.model->load_gltf_bin(loader_context, load_path, &load_stage);
 			}
 		}
-		catch (const General_exception& e)
+		catch (const Exception& e)
 		{
 			load_err_msg       = e.msg;
 			load_stage         = io::mesh::gltf::Load_stage::Error;
@@ -1349,9 +1413,10 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 
 			hdri_command_buffer.begin();
 
-			const auto staging_buffer = load_path == "**built-in--hdri**"
-										  ? hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, binary_resource::builtin_hdr_span)
-										  : hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, load_path);
+			const auto staging_buffer
+				= load_path == LOAD_DEFUALT_HDRI_TOKEN
+					? hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, binary_resource::builtin_hdr_span)
+					: hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, load_path);
 
 			hdri_command_buffer.end();
 
@@ -1373,7 +1438,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 
 		load_state = Load_state::Load_success;
 	}
-	catch (const General_exception& e)
+	catch (const Exception& e)
 	{
 		load_fail_reason = std::format("{} at {}", e.msg, e.loc.function_name());
 		load_state       = Load_state::Load_failed;

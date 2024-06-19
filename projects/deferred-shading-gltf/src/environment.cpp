@@ -24,7 +24,7 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 
 	/* DEBUG */
 
-	if (device_list.size() == 0) throw General_exception("Can't find suitable physical device");
+	if (device_list.size() == 0) throw Exception("Can't find suitable physical device");
 
 	if (device_list.size() == 1)
 	{
@@ -33,7 +33,7 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 				|| device_list[0].getProperties().deviceType == vk::PhysicalDeviceType::eIntegratedGpu))
 			return device_list[0];
 
-		throw General_exception("Can't find suitable physical device");
+		throw Exception("Can't find suitable physical device");
 	}
 
 	auto type_name = [](vk::PhysicalDeviceType type) -> const char*
@@ -100,7 +100,7 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 			return device;
 	}
 
-	throw General_exception("Can't find suitable physical device");
+	throw Exception("Can't find suitable physical device");
 
 #endif
 }
@@ -196,8 +196,7 @@ void Environment::find_queue_families()
 		return std::nullopt;
 	}();
 
-	if (!g_family_match || !p_family_match || !c_family_match)
-		throw General_exception("Can't find suitable family queue");
+	if (!g_family_match || !p_family_match || !c_family_match) throw Exception("Can't find suitable family queue");
 
 	g_family_idx = g_family_match.value(), p_family_idx = p_family_match.value(), c_family_idx = c_family_match.value();
 	g_family_count = family_properties[g_family_idx].queueCount;
@@ -235,7 +234,7 @@ void Environment::create_logic_device()
 	if (device_features.independentBlend)
 		requested_features.independentBlend = true;
 	else
-		throw General_exception("Device Feature Unsupported: Independent Blend");
+		throw Exception("Device Feature Unsupported: Independent Blend");
 
 	const auto device_extensions = std::to_array({VK_KHR_SWAPCHAIN_EXTENSION_NAME});
 
@@ -280,28 +279,40 @@ void Environment::create()
 
 void Environment::Env_swapchain::create_swapchain(const Environment& env)
 {
-	const auto available_surface_formats = env.physical_device.getSurfaceFormatsKHR(env.surface);
+	auto       available_surface_formats = env.physical_device.getSurfaceFormatsKHR(env.surface);
 	const auto capabilities              = env.physical_device.getSurfaceCapabilitiesKHR(env.surface);
 	auto       available_present_modes   = env.physical_device.getSurfacePresentModesKHR(env.surface);
 
-	// select surface format
-	surface_format = [&available_surface_formats]()
-	{
-		for (const auto& surface_format : available_surface_formats)
+	static const std::map<vk::SurfaceFormatKHR, uint32_t> format_priority_list{
+		{{vk::Format::eA2R10G10B10UnormPack32, vk::ColorSpaceKHR::eVkColorspaceSrgbNonlinear}, 1},
+		{{vk::Format::eA2B10G10R10UnormPack32, vk::ColorSpaceKHR::eVkColorspaceSrgbNonlinear}, 1},
+		{{vk::Format::eR8G8B8A8Unorm, vk::ColorSpaceKHR::eVkColorspaceSrgbNonlinear},          2},
+		{{vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eVkColorspaceSrgbNonlinear},          2},
+	};
+
+	std::sort(
+		available_surface_formats.begin(),
+		available_surface_formats.end(),
+		[=](auto x, auto y)
 		{
-			if (surface_format.format == vk::Format::eR8G8B8A8Unorm
-				&& surface_format.colorSpace == vk::ColorSpaceKHR::eVkColorspaceSrgbNonlinear)
-				return surface_format;
+			const auto find_x = format_priority_list.find(x);
+			const auto find_y = format_priority_list.find(y);
+			const auto end    = format_priority_list.end();
+
+			if (find_x == end) return false;
+			if (find_y == end) return true;
+
+			return find_x->second < find_y->second;
 		}
-		return available_surface_formats[0];
-	}();
+	);
+
+	// select surface format
+	surface_format = available_surface_formats[0];
+	if (surface_format.format == vk::Format::eA2R10G10B10UnormPack32 || surface_format.format == vk::Format::eA2B10G10R10UnormPack32)
+		feature.color_depth_10_enabled = true;
 
 	// select image count
-	extent.width = std::clamp(
-		capabilities.currentExtent.width,
-		capabilities.minImageExtent.width,
-		capabilities.maxImageExtent.width
-	);
+	extent.width  = std::clamp(capabilities.currentExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
 	extent.height = std::clamp(
 		capabilities.currentExtent.height,
 		capabilities.minImageExtent.height,

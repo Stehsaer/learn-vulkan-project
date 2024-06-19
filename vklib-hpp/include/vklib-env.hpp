@@ -38,9 +38,9 @@ namespace VKLIB_HPP_NAMESPACE
 		~Instance() override { clean(); }
 	};
 
-	struct Window_exception : public General_exception
+	struct Window_exception : public Exception
 	{
-		using General_exception::General_exception;
+		using Exception::Exception;
 	};
 
 	// Base class for all window implementations

@@ -68,12 +68,24 @@ void Shadow_pipeline::create(const Environment& env)
 
 	//* Model Texture DS Layout
 	{
-		std::array<vk::DescriptorSetLayoutBinding, 1> layout_bindings;
+		std::array<vk::DescriptorSetLayoutBinding, 2> layout_bindings;
 
-		// layout(set = 0, binding = 0) uniform Camera_uniform @ VERT
+		// layout(set = 1, binding = 0) uniform sampler2D albedo_texture;
 		layout_bindings[0]
 			.setBinding(0)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+			.setDescriptorCount(1)
+			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+		//layout(set = 1, binding = 1) uniform Mat_params
+		// {
+		// 	float emissive_factor;
+		// 	float alpha_cutoff;
+		// }
+		// mat_params;
+		layout_bindings[1]
+			.setBinding(1)
+			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 			.setDescriptorCount(1)
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
@@ -100,6 +112,17 @@ void Shadow_pipeline::create(const Environment& env)
 		auto shader_module_infos
 			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
 		create_info.setStages(shader_module_infos);
+
+		// Shader specialization
+		VkBool32 alpha_cutoff = false;
+
+		const auto constant_entries = std::to_array({
+			vk::SpecializationMapEntry{0, 0, 4}
+		});
+		const auto specialization_info
+			= vk::SpecializationInfo().setDataSize(sizeof(alpha_cutoff)).setPData(&alpha_cutoff).setMapEntries(constant_entries);
+
+		shader_module_infos[1].setPSpecializationInfo(&specialization_info);
 
 		std::array<vk::VertexInputAttributeDescription, 2> attributes;
 		attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
@@ -148,10 +171,17 @@ void Shadow_pipeline::create(const Environment& env)
 		// Layout & Renderpass
 		create_info.setRenderPass(render_pass).setLayout(pipeline_layout).setSubpass(0);
 
-		pipeline = Graphics_pipeline(env.device, create_info);
+		single_sided_pipeline = Graphics_pipeline(env.device, create_info);
 
+		alpha_cutoff                = true;
+		single_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
+
+		alpha_cutoff = false;
 		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone).setDepthBiasConstantFactor(1.5).setDepthBiasSlopeFactor(1.75);
 		double_sided_pipeline = Graphics_pipeline(env.device, create_info);
+
+		alpha_cutoff                = true;
+		double_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
 	}
 }
 
@@ -314,6 +344,17 @@ void Gbuffer_pipeline::create(const Environment& env)
 			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
 		create_info.setStages(shader_module_infos);
 
+		// Shader specialization
+		VkBool32 alpha_cutoff = false;
+
+		const auto constant_entries = std::to_array({
+			vk::SpecializationMapEntry{0, 0, 4}
+		});
+		const auto specialization_info
+			= vk::SpecializationInfo().setDataSize(sizeof(alpha_cutoff)).setPData(&alpha_cutoff).setMapEntries(constant_entries);
+
+		shader_module_infos[1].setPSpecializationInfo(&specialization_info);
+
 		// Vertex Input State
 
 		std::array<vk::VertexInputAttributeDescription, 4> attributes;
@@ -389,10 +430,17 @@ void Gbuffer_pipeline::create(const Environment& env)
 		// Layout & Renderpass
 		create_info.setRenderPass(render_pass).setLayout(pipeline_layout).setSubpass(0);
 
-		pipeline = Graphics_pipeline(env.device, create_info);
+		single_sided_pipeline = Graphics_pipeline(env.device, create_info);
 
+		alpha_cutoff                = true;
+		single_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
+
+		alpha_cutoff = false;
 		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone);
 		double_sided_pipeline = Graphics_pipeline(env.device, create_info);
+
+		alpha_cutoff                = true;
+		double_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
 	}
 }
 

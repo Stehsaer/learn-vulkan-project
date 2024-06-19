@@ -67,8 +67,7 @@ namespace VKLIB_HPP_NAMESPACE
 			instance->getProcAddr("vkCreateDebugUtilsMessengerEXT")
 		);
 
-		if (pfn_vk_create_debug_utils_messenger_ext == nullptr)
-			throw General_exception("Function: vkCreateDebugUtilsMessengerEXT not found ");
+		if (pfn_vk_create_debug_utils_messenger_ext == nullptr) throw Exception("Function: vkCreateDebugUtilsMessengerEXT not found ");
 
 		auto handle = instance->createDebugUtilsMessengerEXT(create_info);
 		*this       = Debug_utility(handle, instance);

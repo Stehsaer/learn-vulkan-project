@@ -6,7 +6,7 @@
 
 namespace VKLIB_HPP_NAMESPACE::io
 {
-	class File_exception : public General_exception
+	class File_exception : public Exception
 	{
 	  public:
 
@@ -17,7 +17,7 @@ namespace VKLIB_HPP_NAMESPACE::io
 			const std::string&          reason,
 			const std::source_location& loc = std::source_location::current()
 		) :
-			General_exception(std::format("{}: {}", reason, filename), loc),
+			Exception(std::format("{}: {}", reason, filename), loc),
 			filename(filename),
 			reason(reason)
 		{
@@ -31,12 +31,12 @@ namespace VKLIB_HPP_NAMESPACE::io
 
 	namespace images
 	{
-		class Image_exception : public General_exception
+		class Image_exception : public Exception
 		{
 		  public:
 
 			Image_exception(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
-				General_exception(msg, loc)
+				Exception(msg, loc)
 			{
 			}
 		};
@@ -129,12 +129,12 @@ namespace VKLIB_HPP_NAMESPACE::io
 
 	namespace mesh::wavefront
 	{
-		class Mesh_exception : public General_exception
+		class Mesh_exception : public Exception
 		{
 		  public:
 
 			Mesh_exception(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
-				General_exception(msg, loc)
+				Exception(msg, loc)
 			{
 			}
 		};

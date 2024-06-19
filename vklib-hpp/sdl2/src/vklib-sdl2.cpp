@@ -72,7 +72,7 @@ namespace VKLIB_HPP_NAMESPACE
 		{
 			const char* err_info = SDL_GetError();
 
-			throw General_exception(err_info);
+			throw Exception(err_info);
 		}
 
 		return surface;

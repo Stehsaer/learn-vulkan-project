@@ -30,6 +30,7 @@ void Model_renderer::render_node(
 		if (primitive.material_idx >= model.materials.size()) continue;
 
 		const auto material_idx = primitive.material_idx;
+		const auto& material     = model.materials[material_idx];
 
 		const auto &min = primitive.min, &max = primitive.max;
 
@@ -66,12 +67,38 @@ void Model_renderer::render_node(
 			|| !bounding_box.intersect_or_forward(frustum.near))
 			continue;
 
-		Renderer_drawcall drawcall{node_idx, primitive};
+		const Renderer_drawcall drawcall{node_idx, primitive};
 
-		if (model.materials[primitive.material_idx].double_sided)
-			double_sided.emplace_back(drawcall);
+		if (material.double_sided)
+		{
+			using namespace vklib_hpp::io::mesh::gltf;
+
+			switch (material.alpha_mode)
+			{
+			case Alpha_mode::Opaque:
+				double_sided.emplace_back(drawcall);
+				break;
+			case Alpha_mode::Mask:
+			case Alpha_mode::Blend:
+				double_sided_alpha.emplace_back(drawcall);
+				break;
+			}
+		}
 		else
-			single_sided.emplace_back(drawcall);
+		{
+			using namespace vklib_hpp::io::mesh::gltf;
+
+			switch (material.alpha_mode)
+			{
+			case Alpha_mode::Opaque:
+				single_sided.emplace_back(drawcall);
+				break;
+			case Alpha_mode::Mask:
+			case Alpha_mode::Blend:
+				single_sided_alpha.emplace_back(drawcall);
+				break;
+			}
+		}
 	}
 }
 
@@ -82,7 +109,9 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	const glm::vec3&                                             eye_position,
 	const glm::vec3&                                             eye_path,
 	const Graphics_pipeline&                                     single_pipeline,
+	const Graphics_pipeline&                                     single_pipeline_alpha,
 	const Graphics_pipeline&                                     double_pipeline,
+	const Graphics_pipeline&                                     double_pipeline_alpha,
 	const Pipeline_layout&                                       pipeline_layout,
 	const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
 	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func,
@@ -95,7 +124,9 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	// Initialization
 	{
 		single_sided.clear(), double_sided.clear();
+		single_sided_alpha.clear(), double_sided_alpha.clear();
 		single_sided.reserve(model.nodes.size()), double_sided.reserve(model.nodes.size());
+		single_sided_alpha.reserve(model.nodes.size()), double_sided_alpha.reserve(model.nodes.size());
 	}
 
 	float near = std::numeric_limits<float>::max(), far = -std::numeric_limits<float>::max();
@@ -112,10 +143,15 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	{
 		std::sort(single_sided.begin(), single_sided.end());
 		std::sort(double_sided.begin(), double_sided.end());
+
+		std::sort(single_sided_alpha.begin(), single_sided_alpha.end());
+		std::sort(double_sided_alpha.begin(), double_sided_alpha.end());
 	}
 
+	uint32_t vertex_count = 0;
+
 	// draw a drawlist
-	auto draw = [=](const std::vector<Renderer_drawcall>& draw_list)
+	auto draw = [&](const std::vector<Renderer_drawcall>& draw_list)
 	{
 		uint32_t prev_node = -1, prev_vertex_buffer = -1, prev_offset = -1, prev_material = -1;
 
@@ -144,20 +180,23 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 			}
 
 			command_buffer.draw(0, drawcall.primitive.vertex_count, 0, 1);
+			vertex_count += drawcall.primitive.vertex_count;
 		}
 	};
-
-	//* Single Side
 
 	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, single_pipeline);
 	draw(single_sided);
 
-	//* Double Side
-
 	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, double_pipeline);
 	draw(double_sided);
 
+	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, single_pipeline_alpha);
+	draw(single_sided_alpha);
+
+	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, double_pipeline_alpha);
+	draw(double_sided_alpha);
+
 	timer.end();
 
-	return {near, far, timer.duration<std::chrono::milliseconds>()};
+	return {near, far, timer.duration<std::chrono::milliseconds>(), vertex_count};
 }

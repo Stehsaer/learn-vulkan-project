@@ -18,7 +18,7 @@ class Model_renderer
 {
   private:
 
-	std::vector<Renderer_drawcall> single_sided, double_sided;
+	std::vector<Renderer_drawcall> single_sided, single_sided_alpha, double_sided, double_sided_alpha;
 
   public:
 
@@ -26,6 +26,7 @@ class Model_renderer
 	{
 		float  near, far;
 		double time_consumed;
+		uint32_t vertex_count;
 	};
 
 	Draw_result render_gltf(
@@ -35,7 +36,9 @@ class Model_renderer
 		const glm::vec3&                                             eye_position,
 		const glm::vec3&                                             eye_path,
 		const Graphics_pipeline&                                     single_pipeline,
+		const Graphics_pipeline&                                     single_pipeline_alpha,
 		const Graphics_pipeline&                                     double_pipeline,
+		const Graphics_pipeline&                                     double_pipeline_alpha,
 		const Pipeline_layout&                                       pipeline_layout,
 		const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
 		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func,
@@ -52,5 +55,8 @@ class Model_renderer
 		float&                                     far
 	);
 
-	uint32_t get_object_count() const { return single_sided.size() + double_sided.size(); }
+	uint32_t get_object_count() const
+	{
+		return single_sided.size() + double_sided.size() + single_sided_alpha.size() + double_sided_alpha.size();
+	}
 };

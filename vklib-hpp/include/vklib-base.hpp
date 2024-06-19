@@ -2,6 +2,7 @@
 
 #include "vklib-common.hpp"
 #include <iostream>
+#include <utility>
 
 //* - Mono Resource:
 //		Stand-alone resource, no external dependent. Constructed by constructor. eg. Instance, Physical_device
@@ -69,16 +70,36 @@ namespace VKLIB_HPP_NAMESPACE
 		return str;
 	}
 
-	struct General_exception : public std::runtime_error
+	struct Exception
 	{
 		std::string          msg;
 		std::source_location loc;
 
-		General_exception(const std::string& _msg, const std::source_location& _loc = std::source_location::current()) :
-			std::runtime_error(_msg),
-			msg(_msg),
+		Exception(std::string _msg, const std::source_location& _loc = std::source_location::current()) :
+			msg(std::move(_msg)),
 			loc(_loc)
 		{
+		}
+
+		virtual std::string info() const
+		{
+			return std::format("General Exception: {} ({} at {})", msg, loc.function_name(), crop_file_macro(loc.file_name()));
+		}
+	};
+
+	struct Invalid_argument : public Exception, public std::invalid_argument
+	{
+		Invalid_argument(const std::string& _msg, const std::source_location& _loc = std::source_location::current()) :
+			Exception(_msg, _loc),
+			std::invalid_argument(
+				std::format("Invalid Argument: {} ({} at {})", msg, _loc.function_name(), crop_file_macro(_loc.file_name()))
+			)
+		{
+		}
+
+		virtual std::string info() const
+		{
+			return std::format("Invalid Argument: {} ({} at {})", msg, loc.function_name(), crop_file_macro(loc.file_name()));
 		}
 	};
 

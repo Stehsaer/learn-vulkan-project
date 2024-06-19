@@ -63,9 +63,9 @@ int main(int argc [[maybe_unused]], char** argv [[maybe_unused]])
 
 		return EXIT_SUCCESS;
 	}
-	catch (const General_exception& err)
+	catch (const Exception& err)
 	{
-		std::cerr << "General Error: " << err.what() << '\n';
+		std::cerr << err.info() << '\n';
 
 		show_error_msgbox(
 			"General Error",

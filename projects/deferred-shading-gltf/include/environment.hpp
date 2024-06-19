@@ -39,6 +39,12 @@ class Environment
 		std::vector<vk::Image>  image_handles;
 		std::vector<Image_view> image_views;
 
+		struct
+		{
+			bool color_depth_10_enabled = false;
+			bool hdr_enabled            = false;
+		} feature;
+
 		void create_swapchain(const Environment& env);
 		void create_images(const Environment& env);
 

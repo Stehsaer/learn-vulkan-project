@@ -24,7 +24,7 @@ struct Shadow_pipeline
 		descriptor_set_layout_texture;                          // @frag, set = 1
 
 	Pipeline_layout   pipeline_layout;
-	Graphics_pipeline pipeline, double_sided_pipeline;
+	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, double_sided_pipeline, double_sided_pipeline_alpha;
 	Render_pass       render_pass;
 
 	static vk::ClearValue clear_value;
@@ -55,7 +55,7 @@ struct Gbuffer_pipeline
 		descriptor_set_layout_camera;                     // @vert, set = 0, binding = 0
 
 	Pipeline_layout   pipeline_layout;
-	Graphics_pipeline pipeline, double_sided_pipeline;
+	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, double_sided_pipeline, double_sided_pipeline_alpha;
 	Render_pass       render_pass;
 
 	static std::array<vk::ClearValue, 5> clear_values;

@@ -64,7 +64,7 @@ namespace VKLIB_HPP_NAMESPACE
 			const char* err;
 			glfwGetError(&err);
 
-			throw General_exception(std::format("GLFW3 Window Create Surface Error: {}", err));
+			throw Exception(std::format("GLFW3 Window Create Surface Error: {}", err));
 		}
 
 		return surface;

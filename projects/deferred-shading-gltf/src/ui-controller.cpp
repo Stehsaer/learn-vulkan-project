@@ -75,13 +75,13 @@ void Ui_controller::init_imgui(const Environment& env)
 	init_info.RenderPass     = imgui_renderpass.to<VkRenderPass>();
 	imgui_vulkan_initialized = ImGui_ImplVulkan_Init(&init_info);
 
-	if (!imgui_window_initialized || !imgui_vulkan_initialized) throw General_exception("Failed to initialize IMGUI!");
+	if (!imgui_window_initialized || !imgui_vulkan_initialized) throw Exception("Failed to initialize IMGUI!");
 
 	float ddpi;
 	SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(env.window), &ddpi, nullptr, nullptr);
 	const float scale = ddpi / 96;
 
-	if (scale > 4) throw General_exception(std::format("Abnormal Content DPI: {:.1f}dpi, {:.1f}x scale", ddpi, scale));
+	if (scale > 4) throw Exception(std::format("Abnormal Content DPI: {:.1f}dpi, {:.1f}x scale", ddpi, scale));
 
 	std::vector<uint8_t> copied_font_data(binary_resource::roboto_font_data, binary_resource::roboto_font_data + binary_resource::roboto_font_size);
 

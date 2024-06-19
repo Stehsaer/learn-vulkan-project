@@ -10,6 +10,8 @@ layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec2 in_uv;
 layout(location = 3) in vec3 in_tangent;
 
+layout(constant_id = 0) const bool alpha_cutoff_enabled = false;
+
 layout(set = 1, binding = 0) uniform sampler2D albedo_texture;
 layout(set = 1, binding = 1) uniform sampler2D metalness_roughness_texture;
 layout(set = 1, binding = 2) uniform sampler2D occlusion_texture;
@@ -18,6 +20,7 @@ layout(set = 1, binding = 4) uniform sampler2D emissive_texture;
 layout(set = 1, binding = 5) uniform Mat_params
 {
 	vec3 emissive_strength;
+	float alpha_cutoff;
 } mat_params;
 
 const float gamma = 2.2;
@@ -26,8 +29,8 @@ void main()
 {
 	vec4 color = texture(albedo_texture, in_uv);
 
-	if(color.w < 0.8) discard;
-
+	if(alpha_cutoff_enabled)
+		if(color.w < mat_params.alpha_cutoff) discard;
 
 	// Orthogontalize tange, Gram Schmidt Process
 	vec3 bitangent = normalize(cross(in_tangent, in_normal));

@@ -52,7 +52,7 @@ class App_render_logic : public Application_logic_base
 	/* Statistics */
 
 	std::atomic<double>   gbuffer_cpu_time, shadow_cpu_time;
-	std::atomic<uint32_t> gbuffer_object_count, shadow_object_count;
+	std::atomic<uint32_t> gbuffer_object_count, shadow_object_count, gbuffer_vertex_count, shadow_vertex_count;
 
 	/* Render */
 
@@ -102,6 +102,9 @@ class App_render_logic : public Application_logic_base
 	void compute_auto_exposure(uint32_t idx, const Command_buffer& command_buffer);
 	void compute_bloom(uint32_t idx, const Command_buffer& command_buffer);
 	void draw_composite(uint32_t idx, const Command_buffer& command_buffer);
+
+	/* UI-related */
+	bool show_panel = true, show_control = false, show_feature = false;
 
   public:
 

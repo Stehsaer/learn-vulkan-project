@@ -50,7 +50,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		if (auto end = primitive.attributes.end(); find_position == end)
 		{
-			throw General_exception("Missing Required Attribute: POSITION");
+			throw Exception("Missing Required Attribute: POSITION");
 		}
 
 		const bool has_indices = primitive.indices >= 0, has_texcoord = find_uv != primitive.attributes.end(),
@@ -112,7 +112,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				}
 			}
 			else
-				throw General_exception("Unsupported TinyGLTF Vertex Mode");
+				throw Exception("Unsupported TinyGLTF Vertex Mode");
 		};
 
 		auto parse_data_with_index = [=]<typename T>(std::vector<T>& list, const void* data)
@@ -136,7 +136,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				}
 			}
 			else
-				throw General_exception("Unsupported TinyGLTF Vertex Mode");
+				throw Exception("Unsupported TinyGLTF Vertex Mode");
 		};
 
 		// prevent empty data
@@ -369,9 +369,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			{
 				if (material.alphaMode == "OPAQUE") return Alpha_mode::Opaque;
 				if (material.alphaMode == "MASK") return Alpha_mode::Mask;
-				if (material.alphaMode == "Blend") return Alpha_mode::Blend;
+				if (material.alphaMode == "BLEND") return Alpha_mode::Blend;
 
-				throw General_exception("Invalid Alpha Mode Property");
+				throw Exception("Invalid Alpha Mode Property");
 			}();
 
 			// Emissive
@@ -391,7 +391,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				vk::SharingMode::eExclusive,
 				VMA_MEMORY_USAGE_CPU_TO_GPU
 			);
-			output_material.uniform_buffer << std::to_array({output_material.emissive_strength});
+
+			const auto mat_params = Material::Mat_params{output_material.emissive_strength, output_material.alpha_cutoff};
+			output_material.uniform_buffer << std::to_array({mat_params});
 
 			// Normal Texture
 			output_material.normal_idx = texture_views.size();
@@ -621,7 +623,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		// Descriptor Pool
 		std::array<vk::DescriptorPoolSize, 2> pool_size;
 		pool_size[0].setType(vk::DescriptorType::eCombinedImageSampler).setDescriptorCount(materials.size() * 6 + 1);
-		pool_size[1].setType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(materials.size() + 1);
+		pool_size[1].setType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(materials.size() * 2 + 1);
 
 		material_descriptor_pool = Descriptor_pool(context.device, pool_size, materials.size() * 2 + 1);
 
@@ -634,12 +636,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			material.descriptor_set = Descriptor_set::create_multiple(context.device, material_descriptor_pool, layouts)[0];
 
 			if (context.albedo_only_layout.is_valid())
-				material.albedo_only_descriptor_set = Descriptor_set::create_multiple(
-					context.device,
-					material_descriptor_pool,
-					layouts_albedo_only
-
-				)[0];
+				material.albedo_only_descriptor_set
+					= Descriptor_set::create_multiple(context.device, material_descriptor_pool, layouts_albedo_only)[0];
 
 			// Write Descriptor Sets
 			const auto descriptor_image_write_info = std::to_array<vk::DescriptorImageInfo>(
@@ -653,59 +651,72 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			const auto descriptor_uniform_write_info
 				= vk::DescriptorBufferInfo(material.uniform_buffer, 0, sizeof(Material::Mat_params));
 
-			std::array<vk::WriteDescriptorSet, 7> write_info;
+			std::array<vk::WriteDescriptorSet, 6> normal_write_info;
+			std::array<vk::WriteDescriptorSet, 2> albedo_only_write_info;
 
 			// Albedo
-			write_info[0]
+			normal_write_info[0]
 				.setDstBinding(0)
 				.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 				.setDescriptorCount(1)
 				.setPImageInfo(descriptor_image_write_info.data() + 0)
 				.setDstSet(material.descriptor_set);
-			if (context.albedo_only_layout.is_valid())
-				write_info[4]
-					.setDstBinding(0)
-					.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-					.setDescriptorCount(1)
-					.setPImageInfo(descriptor_image_write_info.data() + 0)
-					.setDstSet(material.albedo_only_descriptor_set);
 			// Metal-roughness
-			write_info[1]
+			normal_write_info[1]
 				.setDstBinding(1)
 				.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 				.setDescriptorCount(1)
 				.setPImageInfo(descriptor_image_write_info.data() + 1)
 				.setDstSet(material.descriptor_set);
 			// Occlusion
-			write_info[2]
+			normal_write_info[2]
 				.setDstBinding(2)
 				.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 				.setDescriptorCount(1)
 				.setPImageInfo(descriptor_image_write_info.data() + 2)
 				.setDstSet(material.descriptor_set);
 			// Normal
-			write_info[3]
+			normal_write_info[3]
 				.setDstBinding(3)
 				.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 				.setDescriptorCount(1)
 				.setPImageInfo(descriptor_image_write_info.data() + 3)
 				.setDstSet(material.descriptor_set);
 			// Emissive
-			write_info[5]
+			normal_write_info[4]
 				.setDstBinding(4)
 				.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 				.setDescriptorCount(1)
 				.setPImageInfo(descriptor_image_write_info.data() + 4)
 				.setDstSet(material.descriptor_set);
 			// Material Param
-			write_info[6]
+			normal_write_info[5]
 				.setDstBinding(5)
 				.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 				.setDescriptorCount(1)
 				.setPBufferInfo(&descriptor_uniform_write_info)
 				.setDstSet(material.descriptor_set);
 
-			context.device->updateDescriptorSets(write_info, {});
+			if (context.albedo_only_layout.is_valid())
+			{
+				albedo_only_write_info[0]
+					.setDstBinding(0)
+					.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+					.setDescriptorCount(1)
+					.setPImageInfo(descriptor_image_write_info.data() + 0)
+					.setDstSet(material.albedo_only_descriptor_set);
+
+				albedo_only_write_info[1]
+					.setDstBinding(1)
+					.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+					.setDescriptorCount(1)
+					.setPBufferInfo(&descriptor_uniform_write_info)
+					.setDstSet(material.albedo_only_descriptor_set);
+			}
+
+			const auto combined_write_info = utility::join_array(normal_write_info, albedo_only_write_info);
+
+			context.device->updateDescriptorSets(combined_write_info, {});
 		}
 	}
 
@@ -757,7 +768,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		if (!result)
 		{
 			if (stage_info) *stage_info = Load_stage::Error;
-			throw General_exception(std::format("Load GLTF (Binary Format) Failed: {}", err));
+			throw Exception(std::format("Load GLTF (Binary Format) Failed: {}", err));
 		}
 
 		load(loader_context, gltf_model, stage_info);
@@ -783,7 +794,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		if (!result)
 		{
 			if (stage_info) *stage_info = Load_stage::Error;
-			throw General_exception(std::format("Load GLTF (ASCII Format) Failed: {}", err));
+			throw Exception(std::format("Load GLTF (ASCII Format) Failed: {}", err));
 		}
 
 		load(loader_context, gltf_model, stage_info);
@@ -809,7 +820,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		if (!result)
 		{
 			if (stage_info) *stage_info = Load_stage::Error;
-			throw General_exception(std::format("Load GLTF (Binary Format from MEM) Failed: {}", err));
+			throw Exception(std::format("Load GLTF (Binary Format from MEM) Failed: {}", err));
 		}
 
 		load(loader_context, gltf_model, stage_info);
@@ -851,9 +862,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			}
 
 			// no format available
-			throw General_exception(
-				std::format("Failed to load texture, pixel_type={}, component={}", pixel_type, component_count)
-			);
+			throw Exception(std::format("Failed to load texture, pixel_type={}, component={}", pixel_type, component_count));
 		}(tex.pixel_type, tex.component == 3 ? 4 : tex.component);
 
 		Buffer         staging_buffer;

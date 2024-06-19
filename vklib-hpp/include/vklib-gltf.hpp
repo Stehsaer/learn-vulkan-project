@@ -112,7 +112,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		struct Mat_params
 		{
-			glm::vec3 emissive_strength;
+			alignas(16) glm::vec3 emissive_strength;
+			alignas(4) float alpha_cutoff;
 		};
 
 		Descriptor_set descriptor_set, albedo_only_descriptor_set;

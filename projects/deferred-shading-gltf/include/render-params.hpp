@@ -37,6 +37,7 @@ struct Render_params
 	bool show_shadow_perspective  = false;
 	int  shadow_perspective_layer = 0;
 	bool sort_drawcall            = true;
+	bool separate_alpha_cutoff    = true;
 
 	/*====== Light Source ======*/
 

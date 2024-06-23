@@ -5,6 +5,7 @@
 #include <vklib-base.hpp>
 #include <vklib-cmdbuf.hpp>
 #include <vklib-common.hpp>
+#include <vklib-debug.hpp>
 #include <vklib-env.hpp>
 #include <vklib-gltf.hpp>
 #include <vklib-io.hpp>
@@ -13,3 +14,4 @@
 #include <vklib-swapchain.hpp>
 #include <vklib-sync.hpp>
 #include <vklib-utility.hpp>
+

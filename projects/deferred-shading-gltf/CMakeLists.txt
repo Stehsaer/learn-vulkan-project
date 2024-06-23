@@ -29,6 +29,7 @@ compile_shader(deferred_shading_gltf shaders/luminance.comp luminance_comp)
 compile_shader(deferred_shading_gltf shaders/quad.vert quad_vert)
 compile_shader(deferred_shading_gltf shaders/shadow.frag shadow_frag)
 compile_shader(deferred_shading_gltf shaders/shadow.vert shadow_vert)
+compile_shader(deferred_shading_gltf shaders/shadow-opaque.vert shadow_opaque_vert)
 
 binary_dependency(deferred_shading_gltf assets/roboto.ttf roboto_font)
 binary_dependency(deferred_shading_gltf assets/damaged-helmet.glb damaged_helmet)

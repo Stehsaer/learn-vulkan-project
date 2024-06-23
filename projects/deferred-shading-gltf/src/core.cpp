@@ -78,18 +78,19 @@ bool Core::render_one_frame(const loop_func& loop_func)
 
 void Core::recreate_swapchain()
 {
+	env.log_msg("Recreating swapchain...");
+
 	while (true)
 	{
 		SDL_Event event;
-		if (SDL_PollEvent(&event))
-		{
-			auto flags = SDL_GetWindowFlags(env.window);
+		while (SDL_PollEvent(&event));
 
-			int width, height;
-			SDL_GetWindowSizeInPixels(env.window, &width, &height);
+		auto flags = SDL_GetWindowFlags(env.window);
 
-			if ((flags & SDL_WINDOW_MINIMIZED) == 0 && width > 0 && height > 0) break;
-		}
+		int width, height;
+		SDL_GetWindowSizeInPixels(env.window, &width, &height);
+
+		if ((flags & SDL_WINDOW_MINIMIZED) == 0 && width > 0 && height > 0) break;
 	}
 
 	env.device->waitIdle();

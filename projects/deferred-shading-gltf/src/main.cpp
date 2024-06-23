@@ -98,7 +98,7 @@ int main(int argc [[maybe_unused]], char** argv [[maybe_unused]])
 		show_error_msgbox("Unknown Error", std::format("Unknown caught:\n{}", err.what()), shared_resource);
 	}
 
-#if NDEBUG
+#if !NDEBUG
 	system("pause");
 #endif
 

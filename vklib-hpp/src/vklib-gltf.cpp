@@ -46,7 +46,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		// Vertices
 
 		auto find_position = primitive.attributes.find("POSITION"), find_normal = primitive.attributes.find("NORMAL"),
-			 find_uv = primitive.attributes.find("TEXCOORD_0");
+			 find_uv = primitive.attributes.find("TEXCOORD_0"), find_tangent = primitive.attributes.find("TANGENT");
 
 		if (auto end = primitive.attributes.end(); find_position == end)
 		{
@@ -54,7 +54,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 
 		const bool has_indices = primitive.indices >= 0, has_texcoord = find_uv != primitive.attributes.end(),
-				   has_normal = find_normal != primitive.attributes.end();
+				   has_normal = find_normal != primitive.attributes.end(), has_tangent = find_tangent != primitive.attributes.end();
 
 		std::vector<uint32_t> indices;
 
@@ -70,6 +70,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 			switch (accessor.componentType)
 			{
+			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE:
+			{
+				const auto* dptr = (const uint8_t*)ptr;
+				for (auto i : Range(accessor.count))
+				{
+					indices[i] = dptr[i];
+				}
+				break;
+			}
 			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT:
 			{
 				const auto* dptr = (const uint16_t*)ptr;
@@ -88,6 +97,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				}
 				break;
 			}
+			default:
+				throw Exception("Unsupported Indice Type");
 			}
 		}
 
@@ -133,6 +144,54 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 					list.emplace_back(dat[indices[item]]);
 					list.emplace_back(dat[indices[item + 1]]);
 					list.emplace_back(dat[indices[item + 2]]);
+				}
+			}
+			else
+				throw Exception("Unsupported TinyGLTF Vertex Mode");
+		};
+
+		auto parse_tangent_data_no_index = [=](std::vector<glm::vec3>& list, const void* data)
+		{
+			const auto* dat = reinterpret_cast<const glm::vec4*>(data);
+
+			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
+			{
+				for (auto item : Range(vertex_count))
+				{
+					list.emplace_back(dat[item] * dat[item].w);
+				}
+			}
+			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+			{
+				for (auto item : Range(vertex_count - 2))
+				{
+					list.emplace_back(dat[item] * dat[item].w);
+					list.emplace_back(dat[item + 1] * dat[item + 1].w);
+					list.emplace_back(dat[item + 2] * dat[item + 2].w);
+				}
+			}
+			else
+				throw Exception("Unsupported TinyGLTF Vertex Mode");
+		};
+
+		auto parse_tangent_data_with_index = [=](std::vector<glm::vec3>& list, const void* data)
+		{
+			const auto* dat = reinterpret_cast<const glm::vec4*>(data);
+
+			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
+			{
+				for (auto i : Range(vertex_count))
+				{
+					list.emplace_back(dat[indices[i]] * dat[indices[i]].w);
+				}
+			}
+			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+			{
+				for (auto item : Range(vertex_count - 2))
+				{
+					list.emplace_back(dat[indices[item]] * dat[indices[item]].w);
+					list.emplace_back(dat[indices[item + 1]] * dat[indices[item + 1]].w);
+					list.emplace_back(dat[indices[item + 2]] * dat[indices[item + 2]].w);
 				}
 			}
 			else
@@ -199,7 +258,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			output_primitive.position_buffer = mesh_context.vec3_data.size() - 1;
 			output_primitive.position_offset = mesh_context.vec3_data.back().size();
 			auto&       position             = mesh_context.vec3_data.back();
-			const auto& size                 = position.size();
+			const auto  size                 = position.size();
 
 			const auto& accessor    = model.accessors[find_position->second];
 			const auto& buffer_view = model.bufferViews[accessor.bufferView];
@@ -259,7 +318,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			}
 		}
 
-		const auto uv_data = [&]
+		const auto [uv_buffer, uv_offset] = [&]
 		{
 			reserve_vec2_data();
 
@@ -267,7 +326,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			output_primitive.uv_offset = mesh_context.vec2_data.back().size();
 			auto& uv                   = mesh_context.vec2_data.back();
 
-			const auto* data = uv.data() + uv.size();
+			const auto size = uv.size();
 
 			// has normal, directly parse the data
 			if (has_texcoord)
@@ -294,7 +353,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				}
 			}
 
-			return std::span(data, vertex_count);
+			return std::tuple{uv, size};
 		}();
 
 		// generate tangent data
@@ -305,24 +364,43 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			output_primitive.tangent_offset = mesh_context.vec3_data.back().size();
 			auto& tangent                   = mesh_context.vec3_data.back();
 
-			for (auto idx = 0u; idx < vertex_count; idx += 3)
+			// both tangent and normal present (see glTF Specification), directly parse the data
+			if (has_tangent && has_normal)
 			{
-				const auto [pos0, pos1, pos2] = std::tuple{
-					position_buffer[position_offset + idx],
-					position_buffer[position_offset + idx + 1],
-					position_buffer[position_offset + idx + 2]
-				};
+				const auto& accessor    = model.accessors[find_tangent->second];
+				const auto& buffer_view = model.bufferViews[accessor.bufferView];
+				const auto& buffer      = model.buffers[buffer_view.buffer];
+				const auto* buffer_data
+					= reinterpret_cast<const glm::vec3*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
 
-				const auto [uv0, uv1, uv2]                = std::tuple{uv_data[idx], uv_data[idx + 1], uv_data[idx + 2]};
-				const auto [tangent0, tangent1, tangent2] = std::tuple{
-					algorithm::vertex_tangent(pos0, pos1, pos2, uv0, uv1, uv2),
-					algorithm::vertex_tangent(pos1, pos0, pos2, uv1, uv0, uv2),
-					algorithm::vertex_tangent(pos2, pos1, pos0, uv2, uv1, uv0)
-				};
+				if (has_indices)
+					parse_tangent_data_with_index(tangent, buffer_data);
+				else
+					parse_tangent_data_no_index(tangent, buffer_data);
+			}
+			else
+			{
+				// manual generate tangent
+				for (auto idx = 0u; idx < vertex_count; idx += 3)
+				{
+					const auto [pos0, pos1, pos2] = std::tuple{
+						position_buffer[position_offset + idx],
+						position_buffer[position_offset + idx + 1],
+						position_buffer[position_offset + idx + 2]
+					};
 
-				tangent.push_back(tangent0);
-				tangent.push_back(tangent1);
-				tangent.push_back(tangent2);
+					const auto [uv0, uv1, uv2]
+						= std::tuple{uv_buffer[uv_offset + idx], uv_buffer[uv_offset + idx + 1], uv_buffer[uv_offset + idx + 2]};
+					const auto [tangent0, tangent1, tangent2] = std::tuple{
+						algorithm::vertex_tangent(pos0, pos1, pos2, uv0, uv1, uv2),
+						algorithm::vertex_tangent(pos1, pos0, pos2, uv1, uv0, uv2),
+						algorithm::vertex_tangent(pos2, pos1, pos0, uv2, uv1, uv0)
+					};
+
+					tangent.push_back(tangent0);
+					tangent.push_back(tangent1);
+					tangent.push_back(tangent2);
+				}
 			}
 		}
 
@@ -844,6 +922,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 					return vk::Format::eR8Unorm;
 				case 2:
 					return vk::Format::eR8G8Unorm;
+				case 3:
 				case 4:
 					return vk::Format::eR8G8B8A8Unorm;
 				}
@@ -855,6 +934,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 					return vk::Format::eR16Unorm;
 				case 2:
 					return vk::Format::eR16G16Unorm;
+				case 3:
 				case 4:
 					return vk::Format::eR16G16B16A16Unorm;
 				}
@@ -863,7 +943,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 			// no format available
 			throw Exception(std::format("Failed to load texture, pixel_type={}, component={}", pixel_type, component_count));
-		}(tex.pixel_type, tex.component == 3 ? 4 : tex.component);
+		}(tex.pixel_type, tex.component);
 
 		Buffer         staging_buffer;
 		vk::DeviceSize copy_size [[maybe_unused]];

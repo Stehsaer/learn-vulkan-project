@@ -18,7 +18,8 @@ class Model_renderer
 {
   private:
 
-	std::vector<Renderer_drawcall> single_sided, single_sided_alpha, double_sided, double_sided_alpha;
+	std::vector<Renderer_drawcall> single_sided, single_sided_alpha, single_sided_blend, double_sided, double_sided_alpha,
+		double_sided_blend;
 
   public:
 
@@ -37,11 +38,15 @@ class Model_renderer
 		const glm::vec3&                                             eye_path,
 		const Graphics_pipeline&                                     single_pipeline,
 		const Graphics_pipeline&                                     single_pipeline_alpha,
+		const Graphics_pipeline&                                     single_pipeline_blend,
 		const Graphics_pipeline&                                     double_pipeline,
 		const Graphics_pipeline&                                     double_pipeline_alpha,
+		const Graphics_pipeline&                                     double_pipeline_blend,
 		const Pipeline_layout&                                       pipeline_layout,
 		const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
-		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func,
+		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_opaque,
+		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_mask,
+		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_alpha,
 		bool                                                         sort_drawcall
 	);
 

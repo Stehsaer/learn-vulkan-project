@@ -164,7 +164,7 @@ namespace VKLIB_HPP_NAMESPACE
 			requires std::convertible_to<T, Dst_T>
 		Dst_T to() const
 		{
-			return (Dst_T)(*data);
+			return (Dst_T)(T)(*data);
 		}
 
 		template <size_t Size>
@@ -287,7 +287,7 @@ namespace VKLIB_HPP_NAMESPACE
 			requires std::convertible_to<T, Dst_T>
 		Dst_T to() const
 		{
-			return (Dst_T)(data->child);
+			return (Dst_T)(T)(data->child);
 		}
 
 		template <size_t Size>

@@ -29,6 +29,7 @@ void main()
 	float rel_brightness = image_val.a / (exp2(luminance_data.luminance) * 9.6);
 
 	image_val *= smoothstep(params.start_threshold, params.end_threshold, rel_brightness);
+	image_val /= mix(1.0, sqrt(rel_brightness / params.end_threshold), smoothstep(params.end_threshold, params.end_threshold * 10, rel_brightness));
 
 	if(rel_brightness > params.start_threshold)
 		imageStore(filtered_out, global_id, image_val);

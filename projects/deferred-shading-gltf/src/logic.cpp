@@ -350,6 +350,8 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 
 		command_buffer.begin();
 
+		core->env.debug_marker.begin_region(command_buffer, std::format("Render Shadow Map, Level {}", csm_idx), {1.0, 1.0, 0.0, 1.0});
+
 		// Begin Shadow Renderpass
 		command_buffer.begin_render_pass(
 			core->Pipeline_set.shadow_pipeline.render_pass,
@@ -395,6 +397,16 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			);
 		};
 
+		auto bind_vertex_opaque = [=, this](const io::mesh::gltf::Primitive& primitive)
+		{
+			const auto& model = core->params.model;
+			command_buffer->bindVertexBuffers(
+				0,
+				{model->vec3_buffers[primitive.position_buffer]},
+				{primitive.position_offset * sizeof(glm::vec3)}
+			);
+		};
+
 		const auto separate = core->params.separate_alpha_cutoff;
 
 		auto draw_result = shadow_renderer[csm_idx].render_gltf(
@@ -406,16 +418,22 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			separate ? core->Pipeline_set.shadow_pipeline.single_sided_pipeline
 					 : core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
 			core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
+			core->Pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
 			separate ? core->Pipeline_set.shadow_pipeline.double_sided_pipeline
 					 : core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
 			core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
+			core->Pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
 			core->Pipeline_set.shadow_pipeline.pipeline_layout,
 			bind_descriptor,
+			bind_vertex_opaque,
+			bind_vertex,
 			bind_vertex,
 			core->params.sort_drawcall
 		);
 
 		command_buffer.end_render_pass();
+
+		core->env.debug_marker.end_region(command_buffer);
 
 		command_buffer.end();
 
@@ -459,6 +477,8 @@ void App_render_logic::gbuffer_thread_work()
 		const auto& command_buffer = command_buffers[current_idx];
 
 		command_buffer.begin();
+
+		core->env.debug_marker.begin_region(command_buffer, "Render Gbuffer", {0.0, 1.0, 1.0, 1.0});
 
 		command_buffer.begin_render_pass(
 			core->Pipeline_set.gbuffer_pipeline.render_pass,
@@ -516,14 +536,19 @@ void App_render_logic::gbuffer_thread_work()
 				separate ? core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline
 						 : core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
 				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
+				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_blend,
 				separate ? core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline
 						 : core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
 				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
+				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_blend,
 				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
 				bind_descriptor,
 				bind_vertex,
+				bind_vertex,
+				bind_vertex,
 				core->params.sort_drawcall
 			);
+
 			draw_result.far  = std::max(0.02f, draw_result.far);
 			draw_result.near = std::max(0.01f, draw_result.near);
 			draw_result.near = std::min(draw_result.near, draw_result.far - 0.01f);
@@ -537,6 +562,8 @@ void App_render_logic::gbuffer_thread_work()
 			gbuffer_vertex_count = draw_result.vertex_count;
 		}
 		command_buffer.end_render_pass();
+
+		core->env.debug_marker.end_region(command_buffer);
 
 		command_buffer.end();
 
@@ -581,9 +608,16 @@ void App_render_logic::post_thread_work()
 		model_rendering_statistic_barrier.arrive_and_wait();
 
 		composite_command_buffer[current_idx].begin();
-		draw_composite(current_idx, composite_command_buffer[current_idx]);
-		ui_logic();
-		core->ui_controller.imgui_draw(core->env, composite_command_buffer[current_idx], current_idx, false);
+		{
+			// Draw Composite
+			draw_composite(current_idx, composite_command_buffer[current_idx]);
+
+			// Draw UI
+			ui_logic();
+			core->env.debug_marker.begin_region(composite_command_buffer[current_idx], "Draw IMGUI", {0.7, 0.0, 1.0, 1.0});
+			core->ui_controller.imgui_draw(core->env, composite_command_buffer[current_idx], current_idx, false);
+			core->env.debug_marker.end_region(composite_command_buffer[current_idx]);
+		}
 		composite_command_buffer[current_idx].end();
 
 		current_lighting_command_buffer  = lighting_command_buffer[current_idx];
@@ -611,6 +645,7 @@ void App_render_logic::draw_lighting(uint32_t idx, const Command_buffer& command
 	};
 
 	// Lighting Pass
+	core->env.debug_marker.begin_region(command_buffer, "Render Lighting", {0.0, 0.0, 1.0, 1.0});
 	command_buffer.begin_render_pass(
 		core->Pipeline_set.lighting_pipeline.render_pass,
 		core->render_targets[idx].lighting_rt.framebuffer,
@@ -632,12 +667,14 @@ void App_render_logic::draw_lighting(uint32_t idx, const Command_buffer& command
 		command_buffer.draw(0, 4, 0, 1);
 	}
 	command_buffer.end_render_pass();
+	core->env.debug_marker.end_region(command_buffer);
 }
 
 void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer& command_buffer)
 {
 	const auto  g_queue_family = core->env.g_family_idx, c_queue_family = core->env.c_family_idx;
 
+	core->env.debug_marker.begin_region(command_buffer, "Compute Auto Exposure", {1.0, 0.0, 0.0, 1.0});
 	{  // Sync 1
 		const vk::ImageMemoryBarrier barrier(
 			vk::AccessFlagBits::eColorAttachmentWrite,
@@ -750,6 +787,7 @@ void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer&
 
 		command_buffer->pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {barrier}, {});
 	}
+	core->env.debug_marker.end_region(command_buffer);
 }
 
 void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command_buffer)
@@ -760,6 +798,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 	const auto& pipeline  = core->Pipeline_set;
 	const auto& swapchain = core->env.swapchain;
 
+	core->env.debug_marker.begin_region(command_buffer, "Compute Bloom", {1.0, 0.0, 0.0, 1.0});
 	{  // Sync
 		command_buffer.layout_transit(
 			rt.lighting_rt.luminance,
@@ -813,6 +852,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 	}
 
 	// Filter
+	core->env.debug_marker.begin_region(command_buffer, "Filter Pixels", {1.0, 0.5, 0.0, 1.0});
 	{
 		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, pipeline.bloom_pipeline.bloom_filter_pipeline);
 		command_buffer->bindDescriptorSets(
@@ -830,6 +870,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 		// Filter pixels
 		command_buffer->dispatch(ceil((float)swapchain.extent.width / 16), ceil((float)swapchain.extent.height / 16), 1);
 	}
+	core->env.debug_marker.end_region(command_buffer);
 
 	// Downsample & Blur
 	{
@@ -882,7 +923,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 		};
 
 		// downsample
-
+		core->env.debug_marker.begin_region(command_buffer, "Downsample", {1.0, 1.0, 0.0, 1.0});
 		command_buffer.layout_transit(
 			upsample_image,
 			vk::ImageLayout::eGeneral,
@@ -935,6 +976,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 
 			blit_image(i);
 		}
+		core->env.debug_marker.end_region(command_buffer);
 
 		// transit last layer of downsample chain
 		command_buffer.layout_transit(
@@ -949,33 +991,37 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 		);
 
 		// accumulate pipeline
-		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, pipeline.bloom_pipeline.bloom_acc_pipeline);
-		for (int i = bloom_downsample_count - 3; i >= 0; i--)
+		core->env.debug_marker.begin_region(command_buffer, "Accumulate", {1.0, 1.0, 0.0, 1.0});
 		{
-			const auto extent = rt.bloom_rt.extents[i + 1];
+			command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, pipeline.bloom_pipeline.bloom_acc_pipeline);
+			for (int i = bloom_downsample_count - 3; i >= 0; i--)
+			{
+				const auto extent = rt.bloom_rt.extents[i + 1];
 
-			command_buffer->bindDescriptorSets(
-				vk::PipelineBindPoint::eCompute,
-				pipeline.bloom_pipeline.bloom_acc_pipeline_layout,
-				0,
-				{rt.bloom_rt.bloom_acc_descriptor_sets[i]},
-				{}
-			);
+				command_buffer->bindDescriptorSets(
+					vk::PipelineBindPoint::eCompute,
+					pipeline.bloom_pipeline.bloom_acc_pipeline_layout,
+					0,
+					{rt.bloom_rt.bloom_acc_descriptor_sets[i]},
+					{}
+				);
 
-			command_buffer->dispatch(ceil((float)extent.width / 16), ceil((float)extent.height / 16), 1);
+				command_buffer->dispatch(ceil((float)extent.width / 16), ceil((float)extent.height / 16), 1);
 
-			command_buffer.layout_transit(
-				upsample_image,
-				vk::ImageLayout::eGeneral,
-				vk::ImageLayout::eShaderReadOnlyOptimal,
-				vk::AccessFlagBits::eShaderWrite,
-				vk::AccessFlagBits::eShaderRead,
-				vk::PipelineStageFlagBits::eComputeShader,
-				vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eFragmentShader,
-				{vk::ImageAspectFlagBits::eColor, (uint32_t)i, 1, 0, 1},
-				vk::DependencyFlagBits::eByRegion
-			);
+				command_buffer.layout_transit(
+					upsample_image,
+					vk::ImageLayout::eGeneral,
+					vk::ImageLayout::eShaderReadOnlyOptimal,
+					vk::AccessFlagBits::eShaderWrite,
+					vk::AccessFlagBits::eShaderRead,
+					vk::PipelineStageFlagBits::eComputeShader,
+					vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eFragmentShader,
+					{vk::ImageAspectFlagBits::eColor, (uint32_t)i, 1, 0, 1},
+					vk::DependencyFlagBits::eByRegion
+				);
+			}
 		}
+		core->env.debug_marker.end_region(command_buffer);
 	}
 
 	// Sync
@@ -992,6 +1038,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 		c_queue_family,
 		g_queue_family
 	);
+	core->env.debug_marker.end_region(command_buffer);
 }
 
 void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& command_buffer)
@@ -1009,6 +1056,7 @@ void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& comman
 		command_buffer.set_scissor(vk::Rect2D({0, 0}, core->env.swapchain.extent));
 	};
 
+	core->env.debug_marker.begin_region(command_buffer, "Render Composite", {0.0, 0.2, 1.0, 1.0});
 	command_buffer.begin_render_pass(
 		core->Pipeline_set.composite_pipeline.render_pass,
 		core->render_targets[idx].composite_rt.framebuffer,
@@ -1029,6 +1077,7 @@ void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& comman
 		command_buffer.draw(0, 4, 0, 1);
 	}
 	command_buffer.end_render_pass();
+	core->env.debug_marker.end_region(command_buffer);
 }
 
 void App_render_logic::ui_logic()
@@ -1213,6 +1262,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 	// Start load thread
 	auto load_work = [this]
 	{
+		core->env.log_msg("Loading model from \"{}\"...", load_path);
 		core->params.model = std::make_shared<io::mesh::gltf::Model>();  // create new
 
 		// Loader Context
@@ -1244,12 +1294,16 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 				else
 					core->params.model->load_gltf_bin(loader_context, load_path, &load_stage);
 			}
+
+			core->env.log_msg("Loaded model");
 		}
 		catch (const Exception& e)
 		{
 			load_err_msg       = e.msg;
 			load_stage         = io::mesh::gltf::Load_stage::Error;
 			core->params.model = nullptr;
+
+			core->env.log_err("Load model failed, reason: {}", e.msg);
 			return;
 		}
 	};
@@ -1404,6 +1458,8 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 	// load HDRI
 	try
 	{
+		core->env.log_msg("Loading HDRi from \"{}\"...", load_path);
+
 		core->params.hdri = std::make_shared<Hdri_resource>();
 		io::images::Stbi_image_utility hdri_image;
 
@@ -1437,11 +1493,14 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 		core->params.hdri->generate(core->env, hdri_view, 1024, core->Pipeline_set.lighting_pipeline.skybox_input_layout);
 
 		load_state = Load_state::Load_success;
+		core->env.log_msg("Loaded HDRi");
 	}
 	catch (const Exception& e)
 	{
 		load_fail_reason = std::format("{} at {}", e.msg, e.loc.function_name());
 		load_state       = Load_state::Load_failed;
+
+		core->env.log_err("Load HDRi failed, reason: {}", e.msg);
 
 		// cleanup
 		core->params.hdri = nullptr;

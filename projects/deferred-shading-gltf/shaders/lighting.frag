@@ -11,7 +11,7 @@ layout(set = 0, binding = 0) uniform sampler2D depth_tex;
 layout(set = 0, binding = 1) uniform sampler2D normal_tex;
 layout(set = 0, binding = 2) uniform sampler2D color_tex;
 layout(set = 0, binding = 3) uniform sampler2D pbr_tex;
-layout(set = 0, binding = 4) uniform sampler2DShadow shadow_map[3];
+layout(set = 0, binding = 4) uniform sampler2D shadow_map[3];
 layout(set = 0, binding = 5) uniform sampler2D emissive_tex;
 
 layout(std140, set = 0, binding = 6) uniform Params {
@@ -57,7 +57,7 @@ void main()
 
 	vec3 emissive = pow(texture(emissive_tex, uv).rgb, vec3(gamma)) * emissive_strength;
 
-	pbr.g = mix(0.005, 1, pbr.g);
+	pbr.g = mix(0.01, 1, pbr.g);
 
 	if(projection_space.z == 1.0) 
 	{
@@ -82,7 +82,8 @@ void main()
 	shadow_coord = transmat.shadow[index] * vec4(position, 1.0);
 	shadow_coord /= shadow_coord.w;
 	shadow_coord.xy = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
-	float is_shadow = texture(shadow_map[index], shadow_coord.xyz);
+	// float is_shadow = texture(shadow_map[index], shadow_coord.xyz);
+	float is_shadow = step(shadow_coord.z, texture(shadow_map[index], shadow_coord.xy).r);
 
 	// vec3[] dbg = vec3[](vec3(1,0,0), vec3(0,1,0), vec3(0,0,1));
 	// luminance_out = vec4(is_shadow);

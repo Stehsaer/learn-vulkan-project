@@ -33,11 +33,13 @@ Trying my best to make my codebase clean and neat! :smile:
     - Optimized Shadow Map View Adaptation
     - AgX Tonemapping
     - Multi-threaded Command Recording
+    - Debug Marker
+    - Dither-based Alpha Rendering
+    - 10-bit Rendering Support
 
     **Planned Features**:
 
     - HDR Support
-    - 10-bit Rendering Support
     - Mesh Combination at GLTF Parsing Stage
     - Skins & Animation
     - KTX Loading & Texture Compression

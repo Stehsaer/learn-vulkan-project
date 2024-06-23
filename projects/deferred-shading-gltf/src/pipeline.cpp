@@ -50,6 +50,7 @@ void Shadow_pipeline::create(const Environment& env)
 			.setDependencyFlags(vk::DependencyFlagBits::eByRegion);
 
 		render_pass = Render_pass(env.device, {attachment_description}, {subpass_description}, subpass_dependencies);
+		env.debug_marker.set_object_name(render_pass, "Shadow Renderpass");
 	}
 
 	//* Shadow Matrix DS Layout
@@ -99,7 +100,9 @@ void Shadow_pipeline::create(const Environment& env)
 		// layout(push_constant) uniform Model @ VERT
 		push_constant_range[0].setOffset(0).setSize(sizeof(Model_matrix)).setStageFlags(vk::ShaderStageFlagBits::eVertex);
 
-		pipeline_layout = Pipeline_layout(env.device, {descriptor_set_layout_shadow_matrix, descriptor_set_layout_texture}, push_constant_range);
+		pipeline_layout
+			= Pipeline_layout(env.device, {descriptor_set_layout_shadow_matrix, descriptor_set_layout_texture}, push_constant_range);
+		env.debug_marker.set_object_name(pipeline_layout, "Shadow Pipeline Layout");
 	}
 
 	//* Graphics Pipeline
@@ -107,20 +110,28 @@ void Shadow_pipeline::create(const Environment& env)
 		vk::GraphicsPipelineCreateInfo create_info;
 
 		// Shaders
-		const Shader_module vert_shader = GET_SHADER_MODULE(shadow_vert), frag_shader = GET_SHADER_MODULE(shadow_frag);
+		const Shader_module vert_shader = GET_SHADER_MODULE(shadow_vert), frag_shader = GET_SHADER_MODULE(shadow_frag),
+							opaque_vert_shader = GET_SHADER_MODULE(shadow_opaque_vert);
 
-		auto shader_module_infos
-			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
+		auto shader_module_infos = std::to_array(
+			{vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
+		);
+		const auto opaque_module_infos = std::to_array({opaque_vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex)});
 		create_info.setStages(shader_module_infos);
 
 		// Shader specialization
-		VkBool32 alpha_cutoff = false;
+		struct Spec_map
+		{
+			VkBool32 alpha_cutoff = false;
+			VkBool32 alpha_blend  = false;
+		} spec_map;
 
 		const auto constant_entries = std::to_array({
-			vk::SpecializationMapEntry{0, 0, 4}
+			vk::SpecializationMapEntry{0, offsetof(Spec_map, alpha_cutoff), sizeof(Spec_map::alpha_cutoff)},
+			vk::SpecializationMapEntry{1, offsetof(Spec_map, alpha_blend),  sizeof(Spec_map::alpha_blend) },
 		});
 		const auto specialization_info
-			= vk::SpecializationInfo().setDataSize(sizeof(alpha_cutoff)).setPData(&alpha_cutoff).setMapEntries(constant_entries);
+			= vk::SpecializationInfo().setDataSize(sizeof(spec_map)).setPData(&spec_map).setMapEntries(constant_entries);
 
 		shader_module_infos[1].setPSpecializationInfo(&specialization_info);
 
@@ -128,11 +139,22 @@ void Shadow_pipeline::create(const Environment& env)
 		attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
 		attributes[1].setBinding(1).setFormat(vk::Format::eR32G32Sfloat).setLocation(1).setOffset(0);
 
+		std::array<vk::VertexInputAttributeDescription, 1> opaque_attributes;
+		opaque_attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
+
 		std::array<vk::VertexInputBindingDescription, 2> bindings;
 		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
 		bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec2));
 
-		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo().setVertexAttributeDescriptions(attributes).setVertexBindingDescriptions(bindings);
+		std::array<vk::VertexInputBindingDescription, 1> opaque_bindings;
+		opaque_bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+
+		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
+									  .setVertexAttributeDescriptions(attributes)
+									  .setVertexBindingDescriptions(bindings);
+		auto opaque_vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
+											 .setVertexAttributeDescriptions(opaque_attributes)
+											 .setVertexBindingDescriptions(opaque_bindings);
 		create_info.setPVertexInputState(&vertex_input_state);
 
 		auto input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleList);
@@ -149,8 +171,8 @@ void Shadow_pipeline::create(const Environment& env)
 									   .setFrontFace(vk::FrontFace::eCounterClockwise)
 									   .setLineWidth(1)
 									   .setDepthBiasEnable(true)
-									   .setDepthBiasConstantFactor(-1.25)
-									   .setDepthBiasSlopeFactor(-1.75);
+									   .setDepthBiasConstantFactor(-0.25)
+									   .setDepthBiasSlopeFactor(-1.25);
 		create_info.setPRasterizationState(&rasterization_state);
 
 		// Multisample State
@@ -171,17 +193,34 @@ void Shadow_pipeline::create(const Environment& env)
 		// Layout & Renderpass
 		create_info.setRenderPass(render_pass).setLayout(pipeline_layout).setSubpass(0);
 
-		single_sided_pipeline = Graphics_pipeline(env.device, create_info);
+		auto opaque_create_info = create_info;
+		opaque_create_info.setStages(opaque_module_infos).setPVertexInputState(&opaque_vertex_input_state);
 
-		alpha_cutoff                = true;
+		//* Single Sided
+		single_sided_pipeline = Graphics_pipeline(env.device, opaque_create_info);
+		env.debug_marker.set_object_name(single_sided_pipeline, "Shadow Pipeline (Single Sided Opaque)");
+
+		spec_map                    = {true, false};
 		single_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_sided_pipeline_alpha, "Shadow Pipeline (Single Sided Alpha)");
 
-		alpha_cutoff = false;
+		spec_map                    = {false, true};
+		single_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_sided_pipeline_blend, "Shadow Pipeline (Single Sided Blend)");
+
+		//* Double Sided
 		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone).setDepthBiasConstantFactor(1.5).setDepthBiasSlopeFactor(1.75);
-		double_sided_pipeline = Graphics_pipeline(env.device, create_info);
 
-		alpha_cutoff                = true;
+		double_sided_pipeline = Graphics_pipeline(env.device, opaque_create_info);
+		env.debug_marker.set_object_name(double_sided_pipeline, "Shadow Pipeline (Double Sided Opaque)");
+
+		spec_map                    = {true, false};
 		double_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_sided_pipeline_alpha, "Shadow Pipeline (Double Sided Alpha)");
+
+		spec_map                    = {false, true};
+		double_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_sided_pipeline_blend, "Shadow Pipeline (Double Sided Blend)");
 	}
 }
 
@@ -202,7 +241,7 @@ void Gbuffer_pipeline::create(const Environment& env)
 	//* Render Pass
 	{
 		std::array<vk::AttachmentDescription, 5> attachment_descriptions;
-		const auto                               formats = std::to_array({normal_format, color_format, color_format, emissive_format, depth_format});
+		const auto formats = std::to_array({normal_format, color_format, pbr_format, emissive_format, depth_format});
 
 		for (auto i : Range(5))
 			attachment_descriptions[i]
@@ -252,6 +291,7 @@ void Gbuffer_pipeline::create(const Environment& env)
 			.setDependencyFlags(vk::DependencyFlagBits::eByRegion);
 
 		render_pass = Render_pass(env.device, attachment_descriptions, {subpass}, subpass_dependencies);
+		env.debug_marker.set_object_name(render_pass, "Gbuffer Renderpass");
 	}
 
 	//* Descriptor Set Layout
@@ -331,6 +371,7 @@ void Gbuffer_pipeline::create(const Environment& env)
 		auto descriptor_set_layouts = Descriptor_set_layout::to_array({descriptor_set_layout_camera, descriptor_set_layout_texture});
 
 		pipeline_layout = Pipeline_layout(env.device, descriptor_set_layouts, push_constant_range);
+		env.debug_marker.set_object_name(pipeline_layout, "Gbuffer Pipeline Layout");
 	}
 
 	//* Graphics Pipeline
@@ -345,13 +386,18 @@ void Gbuffer_pipeline::create(const Environment& env)
 		create_info.setStages(shader_module_infos);
 
 		// Shader specialization
-		VkBool32 alpha_cutoff = false;
+		struct Spec_map
+		{
+			VkBool32 alpha_cutoff = false;
+			VkBool32 alpha_blend  = false;
+		} spec_map;
 
 		const auto constant_entries = std::to_array({
-			vk::SpecializationMapEntry{0, 0, 4}
+			vk::SpecializationMapEntry{0, offsetof(Spec_map, alpha_cutoff), sizeof(Spec_map::alpha_cutoff)},
+			vk::SpecializationMapEntry{1, offsetof(Spec_map, alpha_blend),  sizeof(Spec_map::alpha_blend) },
 		});
 		const auto specialization_info
-			= vk::SpecializationInfo().setDataSize(sizeof(alpha_cutoff)).setPData(&alpha_cutoff).setMapEntries(constant_entries);
+			= vk::SpecializationInfo().setDataSize(sizeof(spec_map)).setPData(&spec_map).setMapEntries(constant_entries);
 
 		shader_module_infos[1].setPSpecializationInfo(&specialization_info);
 
@@ -430,17 +476,33 @@ void Gbuffer_pipeline::create(const Environment& env)
 		// Layout & Renderpass
 		create_info.setRenderPass(render_pass).setLayout(pipeline_layout).setSubpass(0);
 
+		//* Single Sided
+		spec_map              = {false, false};
 		single_sided_pipeline = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_sided_pipeline, "Gbuffer Pipeline (Single Sided Opaque)");
 
-		alpha_cutoff                = true;
+		spec_map                    = {true, false};
 		single_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_sided_pipeline_alpha, "Gbuffer Pipeline (Single Sided Alpha)");
 
-		alpha_cutoff = false;
+		spec_map                    = {false, true};
+		single_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_sided_pipeline_blend, "Gbuffer Pipeline (Single Sided Blend)");
+
+		//* Double Sided
 		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone);
-		double_sided_pipeline = Graphics_pipeline(env.device, create_info);
 
-		alpha_cutoff                = true;
+		spec_map              = {false, false};
+		double_sided_pipeline = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_sided_pipeline, "Gbuffer Pipeline (Double Sided Opaque)");
+
+		spec_map                    = {true, false};
 		double_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_sided_pipeline_alpha, "Gbuffer Pipeline (Double Sided ALpha)");
+
+		spec_map                    = {false, true};
+		double_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_sided_pipeline_blend, "Gbuffer Pipeline (Double Sided Blend)");
 	}
 }
 
@@ -519,6 +581,7 @@ void Lighting_pipeline::create(const Environment& env)
 			.setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
 
 		render_pass = Render_pass(env.device, attachments, {subpass}, dependencies);
+		env.debug_marker.set_object_name(render_pass, "Lighting Renderpass");
 	}
 
 	//* Descriptor Set Layout
@@ -558,6 +621,7 @@ void Lighting_pipeline::create(const Environment& env)
 
 	//* Pipeline Layout
 	pipeline_layout = Pipeline_layout(env.device, {gbuffer_input_layout, skybox_input_layout}, {});
+	env.debug_marker.set_object_name(pipeline_layout, "Lighting Pipeline Layout");
 
 	//* Graphics Pipeline
 	{
@@ -638,6 +702,7 @@ void Lighting_pipeline::create(const Environment& env)
 
 		//* Create Graphics Pipeline
 		pipeline = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(pipeline, "Lighting Pipeline");
 	}
 }
 
@@ -669,21 +734,30 @@ void Auto_exposure_compute_pipeline::create(const Environment& env)
 	{
 		const vk::PushConstantRange luminance_push_constant_range(vk::ShaderStageFlagBits::eCompute, 0, sizeof(Luminance_params));
 
-		luminance_avg_pipeline_layout = Pipeline_layout(env.device, {luminance_avg_descriptor_set_layout}, {luminance_push_constant_range});
+		luminance_avg_pipeline_layout
+			= Pipeline_layout(env.device, {luminance_avg_descriptor_set_layout}, {luminance_push_constant_range});
+		env.debug_marker.set_object_name(luminance_avg_pipeline_layout, "Luminance Avg Pipeline Layout");
 
 		const vk::PushConstantRange lerp_push_constant_range(vk::ShaderStageFlagBits::eCompute, 0, sizeof(Lerp_params));
 
 		lerp_pipeline_layout = Pipeline_layout(env.device, {lerp_descriptor_set_layout}, {lerp_push_constant_range});
+		env.debug_marker.set_object_name(lerp_pipeline_layout, "Luminance Lerp Pipeline Layout");
 	}
 
 	// Pipeline
 	{
 		const auto luminance_avg_shader = GET_SHADER_MODULE(luminance_comp), exposure_lerp_shader = GET_SHADER_MODULE(exposure_lerp_comp);
 
-		luminance_avg_pipeline
-			= Compute_pipeline(env.device, luminance_avg_pipeline_layout, luminance_avg_shader.stage_info(vk::ShaderStageFlagBits::eCompute));
+		luminance_avg_pipeline = Compute_pipeline(
+			env.device,
+			luminance_avg_pipeline_layout,
+			luminance_avg_shader.stage_info(vk::ShaderStageFlagBits::eCompute)
+		);
+		env.debug_marker.set_object_name(luminance_avg_pipeline, "Luminance Avg Pipeline");
 
-		lerp_pipeline = Compute_pipeline(env.device, lerp_pipeline_layout, exposure_lerp_shader.stage_info(vk::ShaderStageFlagBits::eCompute));
+		lerp_pipeline
+			= Compute_pipeline(env.device, lerp_pipeline_layout, exposure_lerp_shader.stage_info(vk::ShaderStageFlagBits::eCompute));
+		env.debug_marker.set_object_name(lerp_pipeline, "Luminance Lerp Pipeline");
 	}
 }
 
@@ -730,10 +804,13 @@ void Bloom_pipeline::create(const Environment& env)
 		const vk::PushConstantRange push_constant_range{vk::ShaderStageFlagBits::eCompute, 0, sizeof(Params)};
 		return Pipeline_layout(env.device, {bloom_filter_descriptor_set_layout}, {push_constant_range});
 	}();
+	env.debug_marker.set_object_name(bloom_filter_pipeline_layout, "Bloom Filter Pipeline Layout");
 
 	bloom_blur_pipeline_layout = Pipeline_layout(env.device, {bloom_blur_descriptor_set_layout}, {});
+	env.debug_marker.set_object_name(bloom_blur_pipeline_layout, "BLoom Blur Pipeline Layout");
 
 	bloom_acc_pipeline_layout = Pipeline_layout(env.device, {bloom_acc_descriptor_set_layout}, {});
+	env.debug_marker.set_object_name(bloom_acc_pipeline_layout, "Bloom Accumulation Pipeline Layout");
 
 	bloom_filter_pipeline = [=, this]
 	{
@@ -742,6 +819,7 @@ void Bloom_pipeline::create(const Environment& env)
 
 		return Compute_pipeline(env.device, bloom_filter_pipeline_layout, stage_info);
 	}();
+	env.debug_marker.set_object_name(bloom_filter_pipeline, "Bloom Filter Pipeline");
 
 	bloom_blur_pipeline = [=, this]
 	{
@@ -750,6 +828,7 @@ void Bloom_pipeline::create(const Environment& env)
 
 		return Compute_pipeline(env.device, bloom_blur_pipeline_layout, stage_info);
 	}();
+	env.debug_marker.set_object_name(bloom_blur_pipeline, "Bloom Blur Pipeline");
 
 	bloom_acc_pipeline = [=, this]
 	{
@@ -758,6 +837,7 @@ void Bloom_pipeline::create(const Environment& env)
 
 		return Compute_pipeline(env.device, bloom_acc_pipeline_layout, stage_info);
 	}();
+	env.debug_marker.set_object_name(bloom_acc_pipeline, "Bloom Accumulation Pipeline");
 }
 
 #pragma endregion
@@ -813,6 +893,7 @@ void Composite_pipeline::create(const Environment& env)
 			.setDstStageMask(vk::PipelineStageFlagBits::eFragmentShader);
 
 		render_pass = Render_pass(env.device, {attachment}, {subpass}, {dependencies});
+		env.debug_marker.set_object_name(render_pass, "Composite Renderpass");
 	}
 
 	//* Descriptor Set Layout
@@ -842,6 +923,7 @@ void Composite_pipeline::create(const Environment& env)
 
 	//* Pipeline Layout
 	pipeline_layout = Pipeline_layout(env.device, {descriptor_set_layout}, {});
+	env.debug_marker.set_object_name(pipeline_layout, "Composite Pipeline Layout");
 
 	//* Graphics Pipeline
 	{
@@ -908,6 +990,7 @@ void Composite_pipeline::create(const Environment& env)
 
 		//* Create Graphics Pipeline
 		pipeline = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(pipeline, "Composite Pipeline");
 	}
 }
 

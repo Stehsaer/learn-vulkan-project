@@ -101,6 +101,12 @@ namespace VKLIB_HPP_NAMESPACE
 
 		operator T() const { return this->data->child.data; }
 
+		template <typename Dst_T = T>
+		Dst_T to() const
+		{
+			return (Dst_T)(T)(*this);
+		}
+
 		virtual void clean()      = 0;
 		virtual ~Vma_allocation() = default;
 	};

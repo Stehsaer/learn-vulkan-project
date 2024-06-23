@@ -53,59 +53,6 @@ namespace VKLIB_HPP_NAMESPACE
 		virtual std::vector<const char*> get_extension_names() const                    = 0;
 	};
 
-	// Vulkan Debug Utility
-	class Debug_utility : public Child_resource<vk::DebugUtilsMessengerEXT, Instance>
-	{
-		using Child_resource<vk::DebugUtilsMessengerEXT, Instance>::Child_resource;
-
-	  public:
-
-		/* ===== Type Definitions =====  */
-
-		using Message_severity_t   = vk::DebugUtilsMessageSeverityFlagsEXT;
-		using Message_severity_bit = vk::DebugUtilsMessageSeverityFlagBitsEXT;
-		using Message_type_t       = vk::DebugUtilsMessageTypeFlagsEXT;
-		using Callback_data_t      = vk::DebugUtilsMessengerCallbackDataEXT;
-
-		using callback_t = VkBool32(
-			VkDebugUtilsMessageSeverityFlagBitsEXT      message_severity,
-			VkDebugUtilsMessageTypeFlagsEXT             message_types,
-			const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-			void*                                       user_data
-		);
-
-		/* ===== Static Constants ===== */
-
-		// Validation Layer Name, add to array of layers when creating Instance
-		static constexpr const char* validation_layer_name = "VK_LAYER_KHRONOS_validation";
-
-		// Debug Utility Extension Name, add to array of extensions when creating Instance
-		static constexpr const char* debug_utils_ext_name = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-
-		// Query if extension is supported
-		static bool is_supported();
-
-		/* ===== Constructor & Destructor ===== */
-
-		Debug_utility(
-			const Instance&    instance,
-			Message_severity_t severity,
-			Message_type_t     msg_type,
-			callback_t*        callback = validation_callback
-		);
-
-		void clean() override;
-		~Debug_utility() override { clean(); }
-
-		// Callback, generates a Validation_error when called (broken)
-		static VKAPI_ATTR VkBool32 VKAPI_CALL validation_callback(
-			VkDebugUtilsMessageSeverityFlagBitsEXT      message_severity,
-			VkDebugUtilsMessageTypeFlagsEXT             message_types,
-			const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-			void*                                       user_data
-		);
-	};
-
 	// Window Surface
 	class Surface : public Child_resource<vk::SurfaceKHR, Instance>
 	{

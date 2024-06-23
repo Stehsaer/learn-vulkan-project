@@ -64,6 +64,9 @@ namespace binary_resource
 	// SOURCE: shaders/shadow.vert
 	DEFINE_RESOURCE(shadow_vert)
 
+	// SOURCE: shaders/shadow-opaque.vert
+	DEFINE_RESOURCE(shadow_opaque_vert)
+
 	/* Assets */
 
 	// SOURCE: assets/roboto.ttf

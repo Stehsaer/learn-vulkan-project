@@ -49,6 +49,12 @@ void Shadow_rt::create(
 
 		// Descriptor Set
 		shadow_matrix_descriptor_set[i] = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+
+		env.debug_marker.set_object_name(shadow_images[i], std::format("Shadow Depth (Index {})", i))
+			.set_object_name(shadow_image_views[i], std::format("Shadow Depth View (Index {})", i))
+			.set_object_name(shadow_framebuffers[i], std::format("Shadow Framebuffer (Index {})", i))
+			.set_object_name(shadow_matrix_uniform[i], std::format("Shadow Matrix Uniform Buffer (Index {})", i))
+			.set_object_name(shadow_matrix_descriptor_set[i], std::format("Shadow Matrix Descriptor Set (Index {})", i));
 	}
 }
 
@@ -98,7 +104,7 @@ void Gbuffer_rt::create(const Environment& env, const Render_pass& render_pass, 
 
 	std::tie(normal, normal_view)     = create_color_attachment(Gbuffer_pipeline::normal_format);
 	std::tie(albedo, albedo_view)     = create_color_attachment(Gbuffer_pipeline::color_format);
-	std::tie(pbr, pbr_view)           = create_color_attachment(Gbuffer_pipeline::color_format);
+	std::tie(pbr, pbr_view)           = create_color_attachment(Gbuffer_pipeline::pbr_format);
 	std::tie(emissive, emissive_view) = create_color_attachment(Gbuffer_pipeline::emissive_format);
 
 	depth = Image(
@@ -112,7 +118,13 @@ void Gbuffer_rt::create(const Environment& env, const Render_pass& render_pass, 
 		vk::SharingMode::eExclusive
 	);
 
-	depth_view = Image_view(env.device, depth, Gbuffer_pipeline::depth_format, vk::ImageViewType::e2D, {vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1});
+	depth_view = Image_view(
+		env.device,
+		depth,
+		Gbuffer_pipeline::depth_format,
+		vk::ImageViewType::e2D,
+		{vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1}
+	);
 
 	// Framebuffer
 	framebuffer = Framebuffer(env.device, render_pass, {normal_view, albedo_view, pbr_view, emissive_view, depth_view}, extent);
@@ -127,6 +139,19 @@ void Gbuffer_rt::create(const Environment& env, const Render_pass& render_pass, 
 	);
 
 	camera_uniform_descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+
+	env.debug_marker.set_object_name(normal, "Gbuffer Normal")
+		.set_object_name(albedo, "Gbuffer Albedo")
+		.set_object_name(pbr, "Gbuffer PBR")
+		.set_object_name(emissive, "Gbuffer Emissive")
+		.set_object_name(depth, "Gbuffer Depth")
+		.set_object_name(normal_view, "Gbuffer Normal View")
+		.set_object_name(albedo_view, "Gbuffer Albedo View")
+		.set_object_name(pbr_view, "Gbuffer PBR View")
+		.set_object_name(emissive_view, "Gbuffer Emissive View")
+		.set_object_name(depth_view, "Gbuffer Depth View")
+		.set_object_name(camera_uniform_buffer, "Gbuffer Camera Uniform Buffer")
+		.set_object_name(framebuffer, "Gbuffer Framebuffer");
 }
 
 Descriptor_buffer_update<> Gbuffer_rt::update_uniform(const Gbuffer_pipeline::Camera_uniform& data)
@@ -200,7 +225,7 @@ void Lighting_rt::create(const Environment& env, const Render_pass& render_pass,
 		.setMaxLod(1.0)
 		.setMinLod(0.0)
 		// Hardware PCF
-		.setCompareEnable(true)
+		.setCompareEnable(false)
 		.setCompareOp(vk::CompareOp::eLessOrEqual)
 		.setAnisotropyEnable(false)
 		.setMaxAnisotropy(1.0)
@@ -216,6 +241,16 @@ void Lighting_rt::create(const Environment& env, const Render_pass& render_pass,
 	);
 
 	input_descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+
+	env.debug_marker.set_object_name(luminance, "Lighting Luminance")
+		.set_object_name(brightness, "Lighting Brightness")
+		.set_object_name(luminance_view, "Lighting Luminance View")
+		.set_object_name(brightness_view, "Lighting Brightness View")
+		.set_object_name(framebuffer, "Lighting Framebuffer")
+		.set_object_name(input_sampler, "Lighting Sampler")
+		.set_object_name(shadow_map_sampler, "Lighting Shadow Map Sampler")
+		.set_object_name(transmat_buffer, "Lighting TransMat Uniform Buffer")
+		.set_object_name(input_descriptor_set, "Lighting Input Descriptor Set");
 }
 
 std::array<Descriptor_image_update<>, 5> Lighting_rt::link_gbuffer(const Gbuffer_rt& gbuffer)
@@ -322,6 +357,18 @@ void Auto_exposure_compute_rt::create(const Environment& env, const Descriptor_p
 	const auto cmd_buf_list = Command_buffer::to_array({command_buffer});
 	env.t_queue.submit(vk::SubmitInfo().setCommandBuffers(cmd_buf_list));
 	env.device->waitIdle();
+
+	env.debug_marker.set_object_name(medium_buffer, "Auto Exposure Medium Buffer")
+		.set_object_name(out_buffer, "Auto Exposure Output Buffer")
+		.set_object_name(lerp_descriptor_set, "Auto Exposure Lerp Input Descriptor Set");
+
+	for (auto i : Range(count))
+	{
+		env.debug_marker.set_object_name(
+			luminance_avg_descriptor_sets[i],
+			std::format("Auto Exposure Luminance Input Descriptor Set (Index {})", i)
+		);
+	}
 }
 
 std::tuple<
@@ -447,6 +494,9 @@ void Bloom_rt::create(const Environment& env, const Descriptor_pool& pool, const
 
 		bloom_acc_descriptor_sets = Descriptor_set::create_multiple(env.device, pool, bloom_acc_layouts);
 	}
+
+	env.debug_marker.set_object_name(bloom_upsample_chain, "Bloom Upsample Image Chain")
+		.set_object_name(bloom_downsample_chain, "Bloom Downsample Image Chain");
 }
 
 std::tuple<std::array<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, 2>, Descriptor_buffer_update<>> Bloom_rt::link_bloom_filter(
@@ -567,6 +617,11 @@ void Composite_rt::create(
 	);
 
 	descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+
+	env.debug_marker.set_object_name(params_buffer, "Composite Params Buffer")
+		.set_object_name(descriptor_set, "Composite Input Descriptor Set")
+		.set_object_name(framebuffer, "Composite Framebuffer")
+		.set_object_name(input_sampler, "Composite Input Sampler");
 }
 
 Descriptor_image_update<> Composite_rt::link_lighting(const Lighting_rt& lighting)

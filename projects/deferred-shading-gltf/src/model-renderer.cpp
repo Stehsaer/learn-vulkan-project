@@ -79,8 +79,10 @@ void Model_renderer::render_node(
 				double_sided.emplace_back(drawcall);
 				break;
 			case Alpha_mode::Mask:
-			case Alpha_mode::Blend:
 				double_sided_alpha.emplace_back(drawcall);
+				break;
+			case Alpha_mode::Blend:
+				double_sided_blend.emplace_back(drawcall);
 				break;
 			}
 		}
@@ -94,8 +96,10 @@ void Model_renderer::render_node(
 				single_sided.emplace_back(drawcall);
 				break;
 			case Alpha_mode::Mask:
-			case Alpha_mode::Blend:
 				single_sided_alpha.emplace_back(drawcall);
+				break;
+			case Alpha_mode::Blend:
+				single_sided_blend.emplace_back(drawcall);
 				break;
 			}
 		}
@@ -110,11 +114,15 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	const glm::vec3&                                             eye_path,
 	const Graphics_pipeline&                                     single_pipeline,
 	const Graphics_pipeline&                                     single_pipeline_alpha,
+	const Graphics_pipeline&                                     single_pipeline_blend,
 	const Graphics_pipeline&                                     double_pipeline,
 	const Graphics_pipeline&                                     double_pipeline_alpha,
+	const Graphics_pipeline&                                     double_pipeline_blend,
 	const Pipeline_layout&                                       pipeline_layout,
 	const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
-	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func,
+	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_opaque,
+	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_mask,
+	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_alpha,
 	bool                                                         sort_drawcall
 )
 {
@@ -125,8 +133,11 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	{
 		single_sided.clear(), double_sided.clear();
 		single_sided_alpha.clear(), double_sided_alpha.clear();
+		single_sided_blend.clear(), double_sided_blend.clear();
+
 		single_sided.reserve(model.nodes.size()), double_sided.reserve(model.nodes.size());
 		single_sided_alpha.reserve(model.nodes.size()), double_sided_alpha.reserve(model.nodes.size());
+		single_sided_blend.reserve(model.nodes.size()), double_sided_blend.reserve(model.nodes.size());
 	}
 
 	float near = std::numeric_limits<float>::max(), far = -std::numeric_limits<float>::max();
@@ -146,13 +157,22 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 
 		std::sort(single_sided_alpha.begin(), single_sided_alpha.end());
 		std::sort(double_sided_alpha.begin(), double_sided_alpha.end());
+
+		std::sort(single_sided_blend.begin(), single_sided_blend.end());
+		std::sort(double_sided_blend.begin(), double_sided_blend.end());
 	}
 
 	uint32_t vertex_count = 0;
 
 	// draw a drawlist
-	auto draw = [&](const std::vector<Renderer_drawcall>& draw_list)
+	auto draw = [&](const std::vector<Renderer_drawcall>&                        draw_list,
+					const Graphics_pipeline&                                     pipeline,
+					const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func)
 	{
+		if (draw_list.empty()) return;
+
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+
 		uint32_t prev_node = -1, prev_vertex_buffer = -1, prev_offset = -1, prev_material = -1;
 
 		for (const auto& drawcall : draw_list)
@@ -184,17 +204,17 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 		}
 	};
 
-	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, single_pipeline);
-	draw(single_sided);
+	draw(single_sided, single_pipeline, bind_vertex_func_opaque);
 
-	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, double_pipeline);
-	draw(double_sided);
+	draw(double_sided, double_pipeline, bind_vertex_func_opaque);
 
-	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, single_pipeline_alpha);
-	draw(single_sided_alpha);
+	draw(single_sided_alpha, single_pipeline_alpha, bind_vertex_func_mask);
 
-	command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, double_pipeline_alpha);
-	draw(double_sided_alpha);
+	draw(double_sided_alpha, double_pipeline_alpha, bind_vertex_func_mask);
+
+	draw(single_sided_blend, single_pipeline_blend, bind_vertex_func_alpha);
+
+	draw(double_sided_blend, double_pipeline_blend, bind_vertex_func_alpha);
 
 	timer.end();
 

@@ -9,7 +9,7 @@ struct General_model_matrix
 
 struct Shadow_pipeline
 {
-	static constexpr vk::Format shadow_map_format = vk::Format::eD24UnormS8Uint;
+	static constexpr vk::Format shadow_map_format = vk::Format::eD32Sfloat;
 
 	// At Shadow Vert, set = 0
 	struct Shadow_uniform
@@ -24,7 +24,8 @@ struct Shadow_pipeline
 		descriptor_set_layout_texture;                          // @frag, set = 1
 
 	Pipeline_layout   pipeline_layout;
-	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, double_sided_pipeline, double_sided_pipeline_alpha;
+	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, single_sided_pipeline_blend, double_sided_pipeline,
+		double_sided_pipeline_alpha, double_sided_pipeline_blend;
 	Render_pass       render_pass;
 
 	static vk::ClearValue clear_value;
@@ -38,8 +39,8 @@ struct Shadow_pipeline
 
 struct Gbuffer_pipeline
 {
-	static constexpr vk::Format normal_format = vk::Format::eR32G32B32A32Sfloat,
-								color_format = vk::Format::eR8G8B8A8Unorm, emissive_format = vk::Format::eR8G8B8A8Unorm,
+	static constexpr vk::Format normal_format = vk::Format::eR32G32B32A32Sfloat, color_format = vk::Format::eR8G8B8A8Unorm,
+								pbr_format = vk::Format::eR8G8B8A8Unorm, emissive_format = vk::Format::eR8G8B8A8Unorm,
 								depth_format = vk::Format::eD24UnormS8Uint;
 
 	// At Gbuffer Vert, set = 0
@@ -55,7 +56,8 @@ struct Gbuffer_pipeline
 		descriptor_set_layout_camera;                     // @vert, set = 0, binding = 0
 
 	Pipeline_layout   pipeline_layout;
-	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, double_sided_pipeline, double_sided_pipeline_alpha;
+	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, single_sided_pipeline_blend, double_sided_pipeline,
+		double_sided_pipeline_alpha, double_sided_pipeline_blend;
 	Render_pass       render_pass;
 
 	static std::array<vk::ClearValue, 5> clear_values;

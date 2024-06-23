@@ -121,23 +121,33 @@ void Environment::create_instance_debug_utility(bool disable_validation)
 	std::vector<const char*> instance_extensions = window.get_extension_names();
 	std::vector<const char*> layers              = {};
 
-	bool enable_validation_layer = Debug_utility::is_supported();
+	features.validation_layer_enabled = Debug_utility::is_supported();
+	features.debug_marker_enabled     = Debug_marker::is_instance_supported();
 
 #ifdef NDEBUG
-	enable_validation_layer = false;
+	features.validation_layer_enabled = false;
 #endif
 
 #if FORCE_DEBUG_LAYER
-	enable_validation_layer = true;
+	features.validation_layer_enabled = true;
 #endif
 
-	enable_validation_layer &= !disable_validation;
+	features.validation_layer_enabled &= !disable_validation;
 
 	// Add Debug Utility layers and extensions
-	if (enable_validation_layer)
+	if (features.validation_layer_enabled)
 	{
 		instance_extensions.push_back(Debug_utility::debug_utils_ext_name);
 		layers.push_back(Debug_utility::validation_layer_name);
+
+		log_msg("Validation Layer ENABLED");
+	}
+
+	// Add Debug Marker extension
+	if (features.debug_marker_enabled)
+	{
+		instance_extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+		log_msg("Debug Marker ENABLED");
 	}
 
 	// Instance
@@ -147,7 +157,7 @@ void Environment::create_instance_debug_utility(bool disable_validation)
 	}
 
 	// Debug Utility
-	if (enable_validation_layer)
+	if (features.validation_layer_enabled)
 	{
 		debug_utility = Debug_utility(
 			instance,
@@ -200,11 +210,12 @@ void Environment::find_queue_families()
 
 	g_family_idx = g_family_match.value(), p_family_idx = p_family_match.value(), c_family_idx = c_family_match.value();
 	g_family_count = family_properties[g_family_idx].queueCount;
+
+	log_msg("Found Queue Families: G={}/C={}/P={}", g_family_idx, c_family_idx, p_family_idx);
 }
 
 void Environment::create_logic_device()
 {
-
 	auto queue_priorities = std::to_array({1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f});
 
 	std::map<uint32_t, uint32_t> family_idx_map;
@@ -225,9 +236,9 @@ void Environment::create_logic_device()
 	queue_create_info.reserve(family_idx_map.size());
 	for (const auto& item : family_idx_map) queue_create_info.push_back({{}, item.first, item.second, queue_priorities.data()});
 
-	// Request sampler anistropy
 	vk::PhysicalDeviceFeatures requested_features;
 
+	// Request sampler anistropy
 	auto device_features = physical_device.getFeatures();
 	if (device_features.samplerAnisotropy) requested_features.samplerAnisotropy = true;
 
@@ -236,7 +247,10 @@ void Environment::create_logic_device()
 	else
 		throw Exception("Device Feature Unsupported: Independent Blend");
 
-	const auto device_extensions = std::to_array({VK_KHR_SWAPCHAIN_EXTENSION_NAME});
+	std::vector device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+	// query debug marker
+	if (features.debug_marker_enabled) device_extensions.push_back(VK_EXT_DEBUG_MARKER_EXTENSION_NAME);
 
 	device = Device(physical_device, queue_create_info, {}, device_extensions, requested_features, nullptr);
 
@@ -245,6 +259,8 @@ void Environment::create_logic_device()
 	p_queue = device->getQueue(p_family_idx, p_queue_offset);
 	t_queue = device->getQueue(g_family_idx, t_queue_offset);
 	c_queue = device->getQueue(c_family_idx, c_queue_offset);
+
+	debug_marker.load(device);
 }
 
 void Environment::create()
@@ -309,15 +325,15 @@ void Environment::Env_swapchain::create_swapchain(const Environment& env)
 	// select surface format
 	surface_format = available_surface_formats[0];
 	if (surface_format.format == vk::Format::eA2R10G10B10UnormPack32 || surface_format.format == vk::Format::eA2B10G10R10UnormPack32)
+	{
 		feature.color_depth_10_enabled = true;
+		env.log_msg("10bit Color Depth ENABLED");
+	}
 
 	// select image count
 	extent.width  = std::clamp(capabilities.currentExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-	extent.height = std::clamp(
-		capabilities.currentExtent.height,
-		capabilities.minImageExtent.height,
-		capabilities.maxImageExtent.height
-	);
+	extent.height
+		= std::clamp(capabilities.currentExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
 
 	// select present mode
 	const static std::map<vk::PresentModeKHR, int> present_mode_ranking = {
@@ -340,6 +356,8 @@ void Environment::Env_swapchain::create_swapchain(const Environment& env)
 
 	// select image count
 	image_count = std::min(capabilities.minImageCount + 1, capabilities.maxImageCount);
+
+	env.log_msg("Swapchain Size: [{}, {}], {} image{}", extent.width, extent.height, image_count, image_count > 1 ? "s" : "");
 
 	auto queue_families    = std::to_array({env.g_family_idx, env.p_family_idx});
 	auto queue_family_span = std::span(queue_families.begin(), env.g_family_idx == env.p_family_idx ? 1 : 2);

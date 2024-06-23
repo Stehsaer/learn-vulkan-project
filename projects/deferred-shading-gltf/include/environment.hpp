@@ -12,9 +12,16 @@ class Environment
 {
   public:
 
+	struct
+	{
+		bool validation_layer_enabled;
+		bool debug_marker_enabled;
+	} features;
+
 	SDL2_window   window;
 	Instance      instance;
 	Debug_utility debug_utility;
+	Debug_marker  debug_marker;
 	Surface       surface;
 
 	Physical_device physical_device;
@@ -54,6 +61,20 @@ class Environment
 	Env_swapchain swapchain;
 
 	void create();
+
+	template <typename... T>
+	void log_msg(const std::format_string<std::remove_reference_t<T>...> fmt, T&&... args) const
+	{
+		auto now = std::chrono::system_clock::now();
+		std::cout << std::format("[{:%H:%M:%S} - LOG] ", now) << std::format(fmt, std::move(args)...) << "\n";
+	}
+
+	template <typename... T>
+	void log_err(const std::format_string<T...> fmt, T&&... args) const
+	{
+		auto now = std::chrono::system_clock::now();
+		std::cerr << std::format("\033[1;[{:%H:%M:%S} - ERR] ", now) << std::format(fmt, args...) << "\033[0m" << std::endl;
+	}
 
   private:
 

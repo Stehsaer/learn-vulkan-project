@@ -16,6 +16,8 @@ class Environment
 	{
 		bool validation_layer_enabled;
 		bool debug_marker_enabled;
+		bool  anistropy_enabled;
+		float max_anistropy = 0.0;
 	} features;
 
 	SDL2_window   window;

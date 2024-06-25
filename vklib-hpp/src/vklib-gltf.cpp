@@ -68,33 +68,29 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			const void* ptr = buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset;
 			indices.resize(accessor.count);
 
+			auto assign_data = [&](const auto* ptr)
+			{
+				for (auto i : Range(accessor.count))
+				{
+					indices[i] = ptr[i];
+				}
+			};
+
 			switch (accessor.componentType)
 			{
 			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE:
 			{
-				const auto* dptr = (const uint8_t*)ptr;
-				for (auto i : Range(accessor.count))
-				{
-					indices[i] = dptr[i];
-				}
+				assign_data((const uint8_t*)ptr);
 				break;
 			}
 			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT:
 			{
-				const auto* dptr = (const uint16_t*)ptr;
-				for (auto i : Range(accessor.count))
-				{
-					indices[i] = dptr[i];
-				}
+				assign_data((const uint16_t*)ptr);
 				break;
 			}
 			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT:
 			{
-				const auto* dptr = (const uint32_t*)ptr;
-				for (auto i : Range(accessor.count))
-				{
-					indices[i] = dptr[i];
-				}
+				assign_data((const uint32_t*)ptr);
 				break;
 			}
 			default:
@@ -210,55 +206,51 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			mesh_context.vec2_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec2));
 		}
 
-		auto reserve_vec3_data = [&]
+		auto find_buffer = [&]<typename T>(std::vector<std::vector<T>>& list) -> size_t
 		{
-			if (vertex_count * 3 * sizeof(glm::vec3) > Mesh_data_context::max_single_size)
+			// Data exceeds single block size
+			if (vertex_count * 3 * sizeof(T) > Mesh_data_context::max_single_size)
 			{
-				if (mesh_context.vec3_data.back().size() != 0)
+				// Last block not empty, create a new one
+				if (list.back().size() != 0)
 				{
-					mesh_context.vec3_data.emplace_back();
+					list.emplace_back();
 				}
-				mesh_context.vec3_data.back().reserve(vertex_count * 3);
 
-				return;
+				list.back().reserve(vertex_count * 3);
+
+				return list.size() - 1;
 			}
 
-			if ((mesh_context.vec3_data.back().size() + vertex_count * 3) * sizeof(glm::vec3) > Mesh_data_context::max_single_size)
-			{
-				mesh_context.vec3_data.emplace_back();
-				mesh_context.vec3_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec3));
-			}
-		};
-
-		auto reserve_vec2_data = [&]
-		{
-			if (vertex_count * 3 * sizeof(glm::vec2) > Mesh_data_context::max_single_size)
-			{
-				if (mesh_context.vec2_data.back().size() != 0)
+			const auto find = std::find_if(
+				list.begin(),
+				list.end(),
+				[=](const auto& list) -> bool
 				{
-					mesh_context.vec2_data.emplace_back();
+					return (list.size() + vertex_count * 3) * sizeof(T) <= Mesh_data_context::max_single_size;
 				}
-				mesh_context.vec2_data.back().reserve(vertex_count * 3);
+			);
 
-				return;
-			}
+			if (find != list.end()) return find - list.begin();
 
-			if ((mesh_context.vec2_data.back().size() + vertex_count * 3) * sizeof(glm::vec2) > Mesh_data_context::max_single_size)
+			if ((list.back().size() + vertex_count * 3) * sizeof(T) > Mesh_data_context::max_single_size)
 			{
-				mesh_context.vec2_data.emplace_back();
-				mesh_context.vec2_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec2));
+				list.emplace_back();
+				list.back().reserve(Mesh_data_context::max_single_size / sizeof(T));
 			}
+
+			return list.size() - 1;
 		};
 
 		// parse position. returns buffer instead of pointer --> prevent vector reallocation
 		const auto [position_buffer, position_offset] = [&]
 		{
-			reserve_vec3_data();
+			const auto buffer_idx = find_buffer(mesh_context.vec3_data);
+			auto&      position   = mesh_context.vec3_data[buffer_idx];
+			const auto size       = position.size();
 
-			output_primitive.position_buffer = mesh_context.vec3_data.size() - 1;
-			output_primitive.position_offset = mesh_context.vec3_data.back().size();
-			auto&       position             = mesh_context.vec3_data.back();
-			const auto  size                 = position.size();
+			output_primitive.position_buffer = buffer_idx;
+			output_primitive.position_offset = size;
 
 			const auto& accessor    = model.accessors[find_position->second];
 			const auto& buffer_view = model.bufferViews[accessor.bufferView];
@@ -279,11 +271,11 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		// parse normal
 		{
-			reserve_vec3_data();
+			const auto buffer_idx = find_buffer(mesh_context.vec3_data);
+			auto&      normal     = mesh_context.vec3_data[buffer_idx];
 
-			output_primitive.normal_buffer = mesh_context.vec3_data.size() - 1;
-			output_primitive.normal_offset = mesh_context.vec3_data.back().size();
-			auto& normal                   = mesh_context.vec3_data.back();
+			output_primitive.normal_buffer = buffer_idx;
+			output_primitive.normal_offset = normal.size();
 
 			// has normal, directly parse the data
 			if (has_normal)
@@ -320,13 +312,12 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		const auto [uv_buffer, uv_offset] = [&]
 		{
-			reserve_vec2_data();
+			const auto buffer_idx = find_buffer(mesh_context.vec2_data);
+			auto&      uv         = mesh_context.vec2_data[buffer_idx];
+			const auto size       = uv.size();
 
-			output_primitive.uv_buffer = mesh_context.vec2_data.size() - 1;
-			output_primitive.uv_offset = mesh_context.vec2_data.back().size();
-			auto& uv                   = mesh_context.vec2_data.back();
-
-			const auto size = uv.size();
+			output_primitive.uv_buffer = buffer_idx;
+			output_primitive.uv_offset = size;
 
 			// has normal, directly parse the data
 			if (has_texcoord)
@@ -358,11 +349,11 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		// generate tangent data
 		{
-			reserve_vec3_data();
+			const auto buffer_idx = find_buffer(mesh_context.vec3_data);
+			auto&      tangent    = mesh_context.vec3_data[buffer_idx];
 
-			output_primitive.tangent_buffer = mesh_context.vec3_data.size() - 1;
-			output_primitive.tangent_offset = mesh_context.vec3_data.back().size();
-			auto& tangent                   = mesh_context.vec3_data.back();
+			output_primitive.tangent_buffer = buffer_idx;
+			output_primitive.tangent_offset = tangent.size();
 
 			// both tangent and normal present (see glTF Specification), directly parse the data
 			if (has_tangent && has_normal)
@@ -429,12 +420,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	void Model::load_material(Loader_context& context, const tinygltf::Model& gltf_model)
 	{
-		for (const auto& image : gltf_model.images)
+		for (auto i : Range(gltf_model.images.size()))
 		{
+			const auto& image = gltf_model.images[i];
+			if (context.sub_progress) *context.sub_progress = (float)i / gltf_model.images.size();
+
 			Texture tex;
 			tex.parse(image, context);
 			textures.push_back(tex);
 		}
+
 		for (const auto& material : gltf_model.materials)
 		{
 			Material output_material;
@@ -442,6 +437,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// Set properties
 			output_material.double_sided = material.doubleSided;
 			output_material.alpha_cutoff = material.alphaCutoff;
+			output_material.name         = material.name;
 
 			output_material.alpha_mode = [=]
 			{
@@ -598,6 +594,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		for (const auto& scene : gltf_model.scenes)
 		{
 			Scene output_scene;
+			output_scene.name = scene.name;
+
 			for (auto i : scene.nodes)
 			{
 				auto node = parse_node(gltf_model, i, glm::mat4(1.0));
@@ -613,9 +611,13 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		Mesh_data_context mesh_context;
 
-		for (const auto& mesh : gltf_model.meshes)
+		for (auto idx : Range(gltf_model.meshes.size()))
 		{
+			const auto& mesh = gltf_model.meshes[idx];
+			if (loader_context.sub_progress) *loader_context.sub_progress = (float)idx / gltf_model.meshes.size();
+
 			Mesh output_mesh;
+			output_mesh.name = mesh.name;
 
 			// Parse all primitives
 			for (const auto& primitive : mesh.primitives)
@@ -798,19 +800,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 	}
 
-	void Model::load(
-		Loader_context&          loader_context,
-		const tinygltf::Model&   gltf_model,
-		std::atomic<Load_stage>* stage_info
-	)
+	void Model::load(Loader_context& loader_context, const tinygltf::Model& gltf_model)
 	{
 
 		// parse Materials
-		if (stage_info) *stage_info = Load_stage::Load_material;
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Load_material;
 		load_material(loader_context, gltf_model);
 
 		// parse Meshes
-		if (stage_info) *stage_info = Load_stage::Load_mesh;
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Load_mesh;
 		load_meshes(loader_context, gltf_model);
 
 		const auto submit_buffer = Command_buffer::to_vector(loader_context.command_buffers);
@@ -819,7 +817,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		// parse nodes
 		load_scene(gltf_model);
 
-		if (stage_info) *stage_info = Load_stage::Transfer;
 		create_descriptor_pool(loader_context);
 
 		loader_context.transfer_queue.waitIdle();
@@ -827,11 +824,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		loader_context.staging_buffers.clear();
 	}
 
-	void Model::load_gltf_bin(
-		Loader_context&          loader_context,
-		const std::string&       path,
-		std::atomic<Load_stage>* stage_info
-	)
+	void Model::load_gltf_bin(Loader_context& loader_context, const std::string& path)
 	{
 		loader_context.fence = Fence(loader_context.device);
 
@@ -840,24 +833,20 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		std::string warn, err;
 
-		if (stage_info) *stage_info = Load_stage::Tinygltf_loading;
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Tinygltf_loading;
 		auto result = parser.LoadBinaryFromFile(&gltf_model, &err, &warn, path);
 
 		if (!result)
 		{
-			if (stage_info) *stage_info = Load_stage::Error;
+			if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Error;
 			throw Exception(std::format("Load GLTF (Binary Format) Failed: {}", err));
 		}
 
-		load(loader_context, gltf_model, stage_info);
-		if (stage_info) *stage_info = Load_stage::Finished;
+		load(loader_context, gltf_model);
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Finished;
 	}
 
-	void Model::load_gltf_ascii(
-		Loader_context&          loader_context,
-		const std::string&       path,
-		std::atomic<Load_stage>* stage_info
-	)
+	void Model::load_gltf_ascii(Loader_context& loader_context, const std::string& path)
 	{
 		loader_context.fence = Fence(loader_context.device);
 
@@ -866,24 +855,20 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		std::string warn, err;
 
-		if (stage_info) *stage_info = Load_stage::Tinygltf_loading;
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Tinygltf_loading;
 		auto result = parser.LoadASCIIFromFile(&gltf_model, &err, &warn, path);
 
 		if (!result)
 		{
-			if (stage_info) *stage_info = Load_stage::Error;
+			if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Error;
 			throw Exception(std::format("Load GLTF (ASCII Format) Failed: {}", err));
 		}
 
-		load(loader_context, gltf_model, stage_info);
-		if (stage_info) *stage_info = Load_stage::Finished;
+		load(loader_context, gltf_model);
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Finished;
 	}
 
-	void Model::load_gltf_memory(
-		Loader_context&          loader_context,
-		std::span<uint8_t>       data,
-		std::atomic<Load_stage>* stage_info
-	)
+	void Model::load_gltf_memory(Loader_context& loader_context, std::span<uint8_t> data)
 	{
 		loader_context.fence = Fence(loader_context.device);
 
@@ -892,17 +877,17 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		std::string warn, err;
 
-		if (stage_info) *stage_info = Load_stage::Tinygltf_loading;
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Tinygltf_loading;
 		auto result = parser.LoadBinaryFromMemory(&gltf_model, &err, &warn, data.data(), data.size());
 
 		if (!result)
 		{
-			if (stage_info) *stage_info = Load_stage::Error;
+			if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Error;
 			throw Exception(std::format("Load GLTF (Binary Format from MEM) Failed: {}", err));
 		}
 
-		load(loader_context, gltf_model, stage_info);
-		if (stage_info) *stage_info = Load_stage::Finished;
+		load(loader_context, gltf_model);
+		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Finished;
 	}
 
 #pragma endregion
@@ -1106,6 +1091,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		width = 1, height = 1;
 		component_count = 4;
 		format          = vk::Format::eR8G8B8A8Unorm;
+		name            = std::format("Generated Image ({}, {}, {}, {})", value0, value1, value2, value3);
 
 		const Buffer staging_buffer(
 			loader_context.allocator,
@@ -1180,21 +1166,19 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			components
 		);
 
-		const auto sampler_create_info
-			= vk::SamplerCreateInfo()
-				  .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-				  .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-				  .setAddressModeW(vk::SamplerAddressMode::eRepeat)
-				  .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-				  .setAnisotropyEnable(context.physical_device.getFeatures().samplerAnisotropy)
-				  .setMaxAnisotropy(std::min(16.0f, context.physical_device.getProperties().limits.maxSamplerAnisotropy)
-				  )
-				  .setCompareEnable(false)
-				  .setMinLod(0)
-				  .setMaxLod(texture.mipmap_levels)
-				  .setMinFilter(vk::Filter::eLinear)
-				  .setMagFilter(vk::Filter::eLinear)
-				  .setUnnormalizedCoordinates(false);
+		const auto sampler_create_info = vk::SamplerCreateInfo()
+											 .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+											 .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+											 .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+											 .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+											 .setAnisotropyEnable(context.config.enable_anistropy)
+											 .setMaxAnisotropy(context.config.max_anistropy)
+											 .setCompareEnable(false)
+											 .setMinLod(0)
+											 .setMaxLod(texture.mipmap_levels)
+											 .setMinFilter(vk::Filter::eLinear)
+											 .setMagFilter(vk::Filter::eLinear)
+											 .setUnnormalizedCoordinates(false);
 
 		sampler = Image_sampler(context.device, sampler_create_info);
 	}

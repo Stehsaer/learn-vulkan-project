@@ -12,36 +12,22 @@
 
 namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 {
-	struct Vertex_accessor_set
+	struct Loader_config
 	{
-		int position, normal, texcoord;
-
-		bool operator==(const Vertex_accessor_set& other) const
-		{
-			return std::tie(position, normal, texcoord) == std::tie(other.position, other.normal, other.texcoord);
-		}
-
-		bool operator!=(const Vertex_accessor_set& other) const
-		{
-			return std::tie(position, normal, texcoord) != std::tie(other.position, other.normal, other.texcoord);
-		}
+		bool  enable_anistropy = false;
+		float max_anistropy    = 1.0;
 	};
-}
 
-template <>
-struct std::hash<VKLIB_HPP_NAMESPACE::io::mesh::gltf::Vertex_accessor_set>
-{
-	size_t operator()(const VKLIB_HPP_NAMESPACE::io::mesh::gltf::Vertex_accessor_set& set) const
+	enum class Load_stage
 	{
-		size_t h1 = std::hash<int>{}(set.position);
-		size_t h2 = std::hash<int>{}(set.normal);
-		size_t h3 = std::hash<int>{}(set.texcoord);
-		return h1 ^ (h2 << 1) ^ (h3 << 2);
-	}
-};
+		Uninitialized    = 0,
+		Tinygltf_loading = 1,
+		Load_material    = 2,
+		Load_mesh        = 3,
+		Finished         = 4,
+		Error            = -1,
+	};
 
-namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
-{
 	struct Loader_context
 	{
 		Queue                 transfer_queue;
@@ -53,8 +39,13 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		Descriptor_set_layout albedo_only_layout;
 		Fence                 fence;
 
+		Loader_config config;
+
 		std::vector<Buffer>         staging_buffers;
 		std::vector<Command_buffer> command_buffers;
+
+		Load_stage* load_stage   = nullptr;
+		float*      sub_progress = nullptr;
 	};
 
 	struct Texture
@@ -103,6 +94,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	struct Material
 	{
+		std::string name;
+
 		size_t    albedo_idx, metal_roughness_idx, normal_idx, emissive_idx, occlusion_idx;
 		bool      double_sided;
 		glm::vec3 emissive_strength;
@@ -114,7 +107,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		{
 			alignas(16) glm::vec3 emissive_strength;
 			alignas(4) float alpha_cutoff;
-		};
+		} params;
 
 		Descriptor_set descriptor_set, albedo_only_descriptor_set;
 		Buffer         uniform_buffer;
@@ -124,6 +117,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	struct Node
 	{
+		std::string name;
+
 		uint32_t              mesh_idx;
 		glm::mat4             transformation = glm::mat4(1.0);
 		std::vector<uint32_t> children;
@@ -143,23 +138,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	struct Mesh
 	{
+		std::string name;
+
 		std::vector<Primitive> primitives;
 	};
 
 	struct Scene
 	{
-		std::vector<uint32_t> nodes;
-	};
+		std::string name;
 
-	enum class Load_stage
-	{
-		Uninitialized = 0,
-		Tinygltf_loading,
-		Load_material,
-		Load_mesh,
-		Transfer,
-		Finished,
-		Error = -1
+		std::vector<uint32_t> nodes;
 	};
 
 	class Model
@@ -176,23 +164,11 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		Descriptor_pool material_descriptor_pool;
 
-		void load_gltf_ascii(
-			Loader_context&          loader_context,
-			const std::string&       path,
-			std::atomic<Load_stage>* stage_info = nullptr
-		);
+		void load_gltf_ascii(Loader_context& loader_context, const std::string& path);
 
-		void load_gltf_bin(
-			Loader_context&          loader_context,
-			const std::string&       path,
-			std::atomic<Load_stage>* stage_info = nullptr
-		);
+		void load_gltf_bin(Loader_context& loader_context, const std::string& path);
 
-		void load_gltf_memory(
-			Loader_context&          loader_context,
-			std::span<uint8_t>       data,
-			std::atomic<Load_stage>* stage_info = nullptr
-		);
+		void load_gltf_memory(Loader_context& loader_context, std::span<uint8_t> data);
 
 	  private:
 
@@ -204,11 +180,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			std::vector<std::vector<glm::vec2>> vec2_data;
 		};
 
-		void load(
-			Loader_context&          loader_context,
-			const tinygltf::Model&   gltf_model,
-			std::atomic<Load_stage>* stage_info = nullptr
-		);
+		void load(Loader_context& loader_context, const tinygltf::Model& gltf_model);
+
 		void load_material(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 		void load_scene(const tinygltf::Model& gltf_model);
 		void load_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model);

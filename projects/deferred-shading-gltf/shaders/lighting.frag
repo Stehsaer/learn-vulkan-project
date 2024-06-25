@@ -57,7 +57,7 @@ void main()
 
 	vec3 emissive = pow(texture(emissive_tex, uv).rgb, vec3(gamma)) * emissive_strength;
 
-	pbr.g = mix(0.01, 1, pbr.g);
+	pbr.g = mix(0.04, 1, pbr.g);
 
 	if(projection_space.z == 1.0) 
 	{
@@ -90,7 +90,7 @@ void main()
 	// return;
 
 	vec3 light_dir = normalize(transmat.sunlight_pos);
-	vec3 view_dir = -normalize(position - transmat.camera_position);
+	vec3 view_dir = -normalize(view_direction);
 
 	vec3 accumulated_light = vec3(0.0);
 
@@ -104,21 +104,22 @@ void main()
 	{
 		const float max_lod = 5.0;
 
-		vec3 reflect_dir = reflect(view_direction, normal);
+		vec3 reflect_dir = reflect(-view_dir, normal);
 		vec3 prefiltered_color = textureLod(skybox_cube, reflect_dir, pbr.g * max_lod).rgb;
-		vec2 lut = texture(brdf_lut, vec2(max(0.0, dot(normal, -view_direction)))).rg;
+
+		vec2 lut = texture(brdf_lut, vec2(max(0.0, dot(normal, view_dir)))).rg;
 
 		vec3 F0 = vec3(0.04);
 		F0 = mix(F0, color, pbr.b);
 
-		vec3 F = fresnel_roughness(normal, reflect_dir, F0, pbr.g);
+		vec3 F = fresnel_roughness(max(0.0, dot(normal, reflect_dir)), F0, pbr.g);
 		vec3 specular = prefiltered_color * (F * lut.x + lut.y);
 
 		vec3 kS = F;
 		vec3 kD = 1.0 - kS;
 		kD *= 1.0 - pbr.b;    
 
-		accumulated_light += (texture(diffuse_cube, normal).rgb * kD + specular) * pbr.r * color * transmat.skybox_brightness;
+		accumulated_light += (texture(diffuse_cube, normal).rgb * kD * color + specular * mix(color, F0, pbr.g)) * pbr.r  * transmat.skybox_brightness;
 	}
 
 	// Emissive

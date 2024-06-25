@@ -147,7 +147,7 @@ void Environment::create_instance_debug_utility(bool disable_validation)
 	if (features.debug_marker_enabled)
 	{
 		instance_extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-		log_msg("Debug Marker ENABLED");
+		log_msg("Debug Report Extension Supported");
 	}
 
 	// Instance
@@ -239,8 +239,12 @@ void Environment::create_logic_device()
 	vk::PhysicalDeviceFeatures requested_features;
 
 	// Request sampler anistropy
-	auto device_features = physical_device.getFeatures();
+	const auto device_features = physical_device.getFeatures();
+	const auto device_limits   = physical_device.getProperties().limits;
+
 	if (device_features.samplerAnisotropy) requested_features.samplerAnisotropy = true;
+	features.anistropy_enabled = device_features.samplerAnisotropy;
+	features.max_anistropy     = device_limits.maxSamplerAnisotropy;
 
 	if (device_features.independentBlend)
 		requested_features.independentBlend = true;
@@ -250,7 +254,18 @@ void Environment::create_logic_device()
 	std::vector device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 	// query debug marker
-	if (features.debug_marker_enabled) device_extensions.push_back(VK_EXT_DEBUG_MARKER_EXTENSION_NAME);
+	if (features.debug_marker_enabled)
+	{
+		if (!Debug_marker::is_supported(physical_device))
+		{
+			log_msg("Debug Marker Not Supported");
+		}
+		else
+		{
+			device_extensions.push_back(VK_EXT_DEBUG_MARKER_EXTENSION_NAME);
+			log_msg("Debug Marker Device ENABLED");
+		}
+	}
 
 	device = Device(physical_device, queue_create_info, {}, device_extensions, requested_features, nullptr);
 

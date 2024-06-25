@@ -15,7 +15,7 @@ vec3 sphere_coord(float theta, float phi, vec3 normal, vec3 up, vec3 right)
 	return normal * sin(theta) + right * cos(theta) * cos(phi) + up * cos(theta) * sin(phi);
 }
 
-float RadicalInverse_VdC(uint bits) 
+float RadicalInverse_VdC(uint bits)
 {
     bits = (bits << 16u) | (bits >> 16u);
     bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);

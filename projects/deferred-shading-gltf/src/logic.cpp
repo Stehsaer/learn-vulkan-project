@@ -174,17 +174,13 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 
 		// Submit
 		const auto deferred_signal_semaphore = Semaphore::to_array({deferred_semaphore});
-		const auto deferred_wait_semaphore   = Semaphore::to_array({core->render_targets.acquire_semaphore});
-		const auto deferred_wait_stages = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
 		const auto deferred_submit_buffers = utility::join_array(
 			Command_buffer::to_array({current_gbuffer_command_buffer}),
 			Command_buffer::to_array(current_shadow_command_buffer)
 		);
-		const auto deferred_submit_info = vk::SubmitInfo()
-											  .setCommandBuffers(deferred_submit_buffers)
-											  .setWaitDstStageMask(deferred_wait_stages)
-											  .setWaitSemaphores(deferred_wait_semaphore)
-											  .setSignalSemaphores(deferred_signal_semaphore);
+
+		const auto deferred_submit_info
+			= vk::SubmitInfo().setCommandBuffers(deferred_submit_buffers).setSignalSemaphores(deferred_signal_semaphore);
 
 		const auto lighting_signal_semaphore = Semaphore::to_array({lighting_semaphore});
 		const auto lighting_wait_semaphore   = Semaphore::to_array({deferred_semaphore});
@@ -207,8 +203,10 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 											 .setSignalSemaphores(compute_signal_semaphore);
 
 		const auto composite_signal_semaphore = Semaphore::to_array({composite_semaphore});
-		const auto composite_wait_semaphore   = Semaphore::to_array({compute_semaphore});
-		const auto composite_wait_stages      = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eComputeShader});
+		const auto composite_wait_semaphore   = Semaphore::to_array({compute_semaphore, core->render_targets.acquire_semaphore});
+		const auto composite_wait_stages      = std::to_array<vk::PipelineStageFlags>(
+            {vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eColorAttachmentOutput}
+        );
 		const auto composite_submit_buffers   = Command_buffer::to_array({current_composite_command_buffer});
 		const auto composite_submit_info      = vk::SubmitInfo()
 											   .setCommandBuffers(composite_submit_buffers)
@@ -407,20 +405,16 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			);
 		};
 
-		const auto separate = core->params.separate_alpha_cutoff;
-
 		auto draw_result = shadow_renderer[csm_idx].render_gltf(
 			command_buffer,
 			*core->params.model,
 			draw_params.shadow_frustums[csm_idx],
 			{0, 0, 0},
 			-draw_params.light_dir,
-			separate ? core->Pipeline_set.shadow_pipeline.single_sided_pipeline
-					 : core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
+			core->Pipeline_set.shadow_pipeline.single_sided_pipeline,
 			core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
 			core->Pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
-			separate ? core->Pipeline_set.shadow_pipeline.double_sided_pipeline
-					 : core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
+			core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
 			core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
 			core->Pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
 			core->Pipeline_set.shadow_pipeline.pipeline_layout,
@@ -428,7 +422,7 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			bind_vertex_opaque,
 			bind_vertex,
 			bind_vertex,
-			core->params.sort_drawcall
+			true
 		);
 
 		command_buffer.end_render_pass();
@@ -525,20 +519,16 @@ void App_render_logic::gbuffer_thread_work()
 				);
 			};
 
-			const auto separate = core->params.separate_alpha_cutoff;
-
 			auto draw_result = gbuffer_renderer.render_gltf(
 				command_buffer,
 				*(core->params.model),
 				draw_params.gbuffer_frustum,
 				draw_params.eye_position,
 				draw_params.eye_path,
-				separate ? core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline
-						 : core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
+				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline,
 				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
 				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_blend,
-				separate ? core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline
-						 : core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
+				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
 				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
 				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_blend,
 				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
@@ -546,7 +536,7 @@ void App_render_logic::gbuffer_thread_work()
 				bind_vertex,
 				bind_vertex,
 				bind_vertex,
-				core->params.sort_drawcall
+				true
 			);
 
 			draw_result.far  = std::max(0.02f, draw_result.far);
@@ -1095,6 +1085,7 @@ void App_render_logic::ui_logic()
 			ImGui::Checkbox("Control", &show_control);
 			ImGui::Checkbox("Statistics", &show_panel);
 			ImGui::Checkbox("Feature List", &show_feature);
+			ImGui::Checkbox("Scene Explorer", &show_scene_explorer);
 		}
 		ImGui::End();
 	}
@@ -1216,8 +1207,6 @@ void App_render_logic::ui_logic()
 					params.shadow_perspective_layer = std::clamp<int>(params.shadow_perspective_layer, 0, 2);
 				}
 				ImGui::EndDisabled();
-				ImGui::Checkbox("Sort Drawcalls", &params.sort_drawcall);
-				ImGui::Checkbox("No Opaque Shader", &params.separate_alpha_cutoff);
 			}
 		}
 		ImGui::End();
@@ -1245,7 +1234,58 @@ void App_render_logic::ui_logic()
 		ImGui::End();
 	}
 
+	if (show_scene_explorer)
+	{
+		if (ImGui::Begin("Scene Explorer", &show_scene_explorer, ImGuiWindowFlags_NoCollapse)) scene_explorer();
+		ImGui::End();
+	}
+
 	ImGui::Render();
+}
+
+void App_render_logic::scene_explorer_node(size_t node_idx)
+{
+	const auto& node = core->params.model->nodes[node_idx];
+
+	const auto tree_node_name = std::format("[Node {1}] {0}##node_{1}", node.name, node_idx);
+
+	if (ImGui::TreeNode(tree_node_name.c_str()))
+	{
+		if (node.mesh_idx < core->params.model->meshes.size())
+			ImGui::Text("Mesh: [Mesh %d] %s", node.mesh_idx, core->params.model->meshes[node.mesh_idx].name.c_str());
+
+		for (auto child_node : node.children) scene_explorer_node(child_node);
+
+		ImGui::TreePop();
+	}
+}
+
+void App_render_logic::scene_explorer()
+{
+	const auto& model = *core->params.model;
+
+	ImGui::BeginTabBar("Tabs");
+
+	// Scene & Nodes
+	ImGui::BeginTabItem("Scenes");
+
+	// Iterate over all scenes
+	for (auto i : Range(model.scenes.size()))
+	{
+		const auto& scene = model.scenes[i];
+
+		// Iterate over all child nodes
+		const auto header_name = std::format("[Scene {1}] {0}##scene_{1}", scene.name, i);
+
+		if (ImGui::CollapsingHeader(header_name.c_str()))
+		{
+			for (auto node_idx : scene.nodes) scene_explorer_node(node_idx);
+		}
+	}
+
+	ImGui::EndTabItem();
+
+	ImGui::EndTabBar();
 }
 
 #pragma endregion
@@ -1267,6 +1307,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 
 		// Loader Context
 		io::mesh::gltf::Loader_context loader_context;
+
 		loader_context.allocator                     = core->env.allocator;
 		loader_context.command_pool                  = Command_pool(core->env.device, core->env.g_family_idx);
 		loader_context.device                        = core->env.device;
@@ -1274,6 +1315,9 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 		loader_context.physical_device               = core->env.physical_device;
 		loader_context.texture_descriptor_set_layout = core->Pipeline_set.gbuffer_pipeline.descriptor_set_layout_texture;
 		loader_context.albedo_only_layout            = core->Pipeline_set.shadow_pipeline.descriptor_set_layout_texture;
+
+		loader_context.load_stage   = &load_stage;
+		loader_context.sub_progress = &sub_progress;
 
 		const auto extension = std::filesystem::path(load_path).extension();
 
@@ -1283,16 +1327,15 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 			{
 				core->params.model->load_gltf_memory(
 					loader_context,
-					std::span((uint8_t*)binary_resource::damaged_helmet_data, binary_resource::damaged_helmet_size),
-					&load_stage
+					std::span((uint8_t*)binary_resource::damaged_helmet_data, binary_resource::damaged_helmet_size)
 				);
 			}
 			else
 			{
 				if (extension == ".gltf")
-					core->params.model->load_gltf_ascii(loader_context, load_path, &load_stage);
+					core->params.model->load_gltf_ascii(loader_context, load_path);
 				else
-					core->params.model->load_gltf_bin(loader_context, load_path, &load_stage);
+					core->params.model->load_gltf_bin(loader_context, load_path);
 			}
 
 			core->env.log_msg("Loaded model");
@@ -1366,12 +1409,11 @@ void App_load_model_logic::ui_logic()
 		))
 	{
 		const char* display_msg      = "";
-		const float display_progress = (int)load_stage.load() / 5.0f;
+		const float display_progress = ((int)load_stage - 1 + sub_progress) / 3.0f;
 
 		switch (load_stage)
 		{
 		case vklib_hpp::io::mesh::gltf::Load_stage::Uninitialized:
-			display_msg = "Starting";
 			break;
 		case vklib_hpp::io::mesh::gltf::Load_stage::Tinygltf_loading:
 			display_msg = "TinyGltf Loading Data";
@@ -1381,9 +1423,6 @@ void App_load_model_logic::ui_logic()
 			break;
 		case vklib_hpp::io::mesh::gltf::Load_stage::Load_mesh:
 			display_msg = "Loading Mesh";
-			break;
-		case vklib_hpp::io::mesh::gltf::Load_stage::Transfer:
-			display_msg = "Transferring";
 			break;
 		case vklib_hpp::io::mesh::gltf::Load_stage::Finished:
 			break;

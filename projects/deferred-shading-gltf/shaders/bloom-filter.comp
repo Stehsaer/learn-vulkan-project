@@ -26,6 +26,10 @@ void main()
 	if(global_id.x >= tex_size.x || global_id.y >= tex_size.y) return;
 
 	vec4 image_val = imageLoad(luminance_in, global_id) * params.exposure;
+
+	bvec4 nan = isnan(image_val), inf = isinf(image_val);
+	if(nan.x || nan.y || nan.z || nan.w || inf.x || inf.y || inf.z || inf.w) image_val = vec4(0.0);
+
 	float rel_brightness = image_val.a / (exp2(luminance_data.luminance) * 9.6);
 
 	image_val *= smoothstep(params.start_threshold, params.end_threshold, rel_brightness);

@@ -104,7 +104,11 @@ class App_render_logic : public Application_logic_base
 	void draw_composite(uint32_t idx, const Command_buffer& command_buffer);
 
 	/* UI-related */
-	bool show_panel = true, show_control = false, show_feature = false;
+
+	bool show_panel = true, show_control = false, show_feature = false, show_scene_explorer = false;
+
+	void scene_explorer();
+	void scene_explorer_node(size_t node_idx);
 
   public:
 
@@ -157,7 +161,9 @@ class App_load_model_logic : public Application_logic_base
 	std::string  load_path;
 	std::jthread load_thread;
 
-	std::atomic<io::mesh::gltf::Load_stage> load_stage = io::mesh::gltf::Load_stage::Uninitialized;
+	io::mesh::gltf::Load_stage load_stage   = io::mesh::gltf::Load_stage::Uninitialized;
+	float                      sub_progress = 0.0;
+
 	std::string                             load_err_msg;
 
 	bool quit = false;  // set to true when quitting the state

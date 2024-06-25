@@ -9,8 +9,8 @@ struct Renderer_drawcall
 
 	auto operator<=>(const Renderer_drawcall& other) const
 	{
-		return std::tie(primitive.material_idx, primitive.position_buffer, primitive.position_offset)
-		   <=> std::tie(other.primitive.material_idx, other.primitive.position_buffer, other.primitive.position_offset);
+		return std::tie(primitive.material_idx, primitive.position_buffer, node_idx)
+		   <=> std::tie(other.primitive.material_idx, other.primitive.position_buffer, node_idx);
 	}
 };
 

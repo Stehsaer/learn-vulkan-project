@@ -1319,6 +1319,9 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 		loader_context.load_stage   = &load_stage;
 		loader_context.sub_progress = &sub_progress;
 
+		loader_context.config.enable_anistropy = core->env.features.anistropy_enabled;
+		loader_context.config.max_anistropy    = std::min(8.0f, core->env.features.max_anistropy);
+
 		const auto extension = std::filesystem::path(load_path).extension();
 
 		try

@@ -196,7 +196,7 @@ struct Composite_rt
 };
 
 inline static std::array<uint32_t, 3> shadow_map_res{
-	{2048, 1536, 1024}
+	{2048, 2048, 1536}
 };
 
 // Accumulate descriptor pool sizes

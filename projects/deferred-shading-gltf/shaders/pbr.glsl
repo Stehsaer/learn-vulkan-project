@@ -57,13 +57,13 @@ vec3 fresnel_roughness(float v_dot, vec3 F0, float roughness)
 
 vec3 cook_torrance(float n_dot_v, float n_dot_l, float n_dot_h, float v_dot_h, float alpha, vec3 F0)
 {
-	float NDF = NDF_GGXTR(n_dot_h, alpha * alpha);
-	float GEO = geometry_occlusion(n_dot_v, n_dot_l, k_mapping_direct(alpha * alpha));
+	float NDF = NDF_GGXTR(n_dot_h, alpha);
+	float GEO = geometry_occlusion(n_dot_v, n_dot_l, k_mapping_direct(alpha));
 	vec3 F = fresnel(v_dot_h, F0);
 
 	vec3 DFG = NDF * GEO * F;
 
-	return DFG / (4.0 * n_dot_v * n_dot_l + 0.0001);
+	return DFG / (4.0 * n_dot_v * n_dot_l + 0.001);
 }
 
 vec3 calculate_pbr(vec3 light_dir, vec3 light_intensity, vec3 view_dir, vec3 normal_dir, vec3 albedo, vec3 pbr)

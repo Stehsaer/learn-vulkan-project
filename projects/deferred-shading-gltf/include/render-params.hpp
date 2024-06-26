@@ -30,7 +30,7 @@ struct Render_params
 	/*====== Shadow ======*/
 
 	std::array<float, 3> shadow_near, shadow_far;
-	float                csm_blend_factor = 0.5;
+	float                csm_blend_factor = 0.8;
 
 	/*====== Debug ======*/
 

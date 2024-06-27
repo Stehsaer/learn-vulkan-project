@@ -70,7 +70,7 @@ void main()
 		vec3 h = sample_ggx(xi, normal, up, right, params.roughness);
 		vec3 light = normalize(-reflect(h, normal));
 
-		float ggx = NDF_GGXTR(normal, h, params.roughness);
+		float ggx = NDF_GGXTR(max(0.0, dot(normal, h)), params.roughness);
 		float pdf = ggx / 4.0 + 0.0001; 
 
 		float saTexel  = 4.0 * PI / (6.0 * params.resolution * params.resolution);

@@ -120,8 +120,14 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		std::string name;
 
 		uint32_t              mesh_idx;
-		glm::mat4             transformation = glm::mat4(1.0);
 		std::vector<uint32_t> children;
+
+		glm::quat rotation{1.0, 0.0, 0.0, 0.0};
+		glm::vec3 translation{0.0};
+		glm::vec3 scale{1.0};
+
+		glm::mat4 get_transformation() const;
+		void      set_transformation(const tinygltf::Node& node);
 	};
 
 	struct Primitive
@@ -192,6 +198,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		Primitive parse_primitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, Mesh_data_context& mesh_context);
 
-		Node parse_node(const tinygltf::Model& model, uint32_t idx, const glm::mat4& transformation);
+		Node parse_node(const tinygltf::Model& model, uint32_t idx);
 	};
 }

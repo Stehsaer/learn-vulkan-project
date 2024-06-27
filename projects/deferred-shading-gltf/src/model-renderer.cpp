@@ -3,6 +3,7 @@
 void Model_renderer::render_node(
 	const io::mesh::gltf::Model&               model,
 	uint32_t                                   node_idx,
+	const glm::mat4&                           transformation,
 	const algorithm::frustum_culling::Frustum& frustum,
 	const glm::vec3&                           eye_position,
 	const glm::vec3&                           eye_path,
@@ -11,10 +12,10 @@ void Model_renderer::render_node(
 )
 {
 	const auto& node = model.nodes[node_idx];
+	const auto  node_trans = transformation * node.get_transformation();
 
 	// recursive render node
-	for (auto children_idx : node.children)
-		render_node(model, children_idx, frustum, eye_position, eye_path, near, far);
+	for (auto children_idx : node.children) render_node(model, children_idx, node_trans, frustum, eye_position, eye_path, near, far);
 
 	// ignore nodes without a mesh
 	if (node.mesh_idx >= model.meshes.size()) return;
@@ -42,7 +43,7 @@ void Model_renderer::render_node(
 
 		for (auto& pt : edge_points)
 		{
-			const auto coord = node.transformation * glm::vec4(pt, 1.0);
+			const auto coord = node_trans * glm::vec4(pt, 1.0);
 			pt               = coord / coord.w;
 			min_coord        = glm::min(min_coord, pt);
 			max_coord        = glm::max(max_coord, pt);
@@ -67,7 +68,7 @@ void Model_renderer::render_node(
 			|| !bounding_box.intersect_or_forward(frustum.near))
 			continue;
 
-		const Renderer_drawcall drawcall{node_idx, primitive};
+		const Renderer_drawcall drawcall{node_idx, primitive, node_trans};
 
 		if (material.double_sided)
 		{
@@ -145,7 +146,7 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	// recursive collect
 	for (const auto& scene : model.scenes)
 	{
-		for (auto idx : scene.nodes) render_node(model, idx, frustum, eye_position, eye_path, near, far);
+		for (auto idx : scene.nodes) render_node(model, idx, glm::mat4(1.0), frustum, eye_position, eye_path, near, far);
 	}
 
 	// sort drawcalls
@@ -177,11 +178,9 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 
 		for (const auto& drawcall : draw_list)
 		{
-			const auto& node = model.nodes[drawcall.node_idx];
-
 			if (prev_node != drawcall.node_idx)
 			{
-				auto push_constants = Gbuffer_pipeline::Model_matrix(node.transformation);
+				auto push_constants = Gbuffer_pipeline::Model_matrix(drawcall.transformation);
 				command_buffer.push_constants(pipeline_layout, vk::ShaderStageFlagBits::eVertex, push_constants);
 				prev_node = drawcall.node_idx;
 			}

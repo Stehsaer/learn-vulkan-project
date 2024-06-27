@@ -1,33 +1,39 @@
 #include "vklib-gltf.hpp"
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/matrix_decompose.hpp>
+
 namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 {
+#pragma region "Node"
 
-#pragma region "Utility"
-
-	static glm::mat4 node_transform(const tinygltf::Node& node)
+	glm::mat4 Node::get_transformation() const
 	{
-		glm::mat4 mat(1.0);
+		return glm::translate(glm::mat4(1.0), translation) * glm::scale(glm::mat4(rotation), scale);
+	}
 
+	void Node::set_transformation(const tinygltf::Node& node)
+	{
+		// exists full transformation matrix
 		if (node.matrix.size() == 16)
 		{
-			mat = glm::make_mat4(node.matrix.data());
+			const auto mat = glm::mat4(glm::make_mat4(node.matrix.data()));
+
+			glm::vec3 skew;
+			glm::vec4 perspective;
+
+			// decompose the matrix, ignoreing skew and perspective
+			glm::decompose(mat, scale, rotation, translation, skew, perspective);
+
+			// conjungatify rotation
+			// rotation = glm::conjugate(rotation);
+
+			return;
 		}
 
-		if (node.rotation.size() == 4)
-		{
-			const glm::quat quaternion = glm::make_quat(node.rotation.data());
-
-			const glm::mat4 trans(quaternion);
-			mat = trans * mat;
-		}
-
-		if (node.scale.size() == 3) mat = glm::scale(glm::mat4(1.0), glm::vec3(glm::make_vec3(node.scale.data()))) * mat;
-
-		if (node.translation.size() == 3)
-			mat = glm::translate(glm::mat4(1.0), glm::vec3(glm::make_vec3(node.translation.data()))) * mat;
-
-		return mat;
+		if (node.rotation.size() == 4) rotation = glm::make_quat(node.rotation.data());
+		if (node.scale.size() == 3) scale = glm::make_vec3(node.scale.data());
+		if (node.translation.size() == 3) translation = glm::make_vec3(node.translation.data());
 	}
 
 #pragma endregion
@@ -270,9 +276,11 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}();
 
 		// parse normal
+		const auto [normal_buffer, normal_offset] = [&]
 		{
 			const auto buffer_idx = find_buffer(mesh_context.vec3_data);
 			auto&      normal     = mesh_context.vec3_data[buffer_idx];
+			const auto size       = normal.size();
 
 			output_primitive.normal_buffer = buffer_idx;
 			output_primitive.normal_offset = normal.size();
@@ -308,7 +316,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 					normal.push_back(normal_vector);
 				}
 			}
-		}
+
+			return std::tuple{normal, size};
+		}();
 
 		const auto [uv_buffer, uv_offset] = [&]
 		{
@@ -382,15 +392,37 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 					const auto [uv0, uv1, uv2]
 						= std::tuple{uv_buffer[uv_offset + idx], uv_buffer[uv_offset + idx + 1], uv_buffer[uv_offset + idx + 2]};
+
 					const auto [tangent0, tangent1, tangent2] = std::tuple{
 						algorithm::vertex_tangent(pos0, pos1, pos2, uv0, uv1, uv2),
 						algorithm::vertex_tangent(pos1, pos0, pos2, uv1, uv0, uv2),
 						algorithm::vertex_tangent(pos2, pos1, pos0, uv2, uv1, uv0)
 					};
 
-					tangent.push_back(tangent0);
-					tangent.push_back(tangent1);
-					tangent.push_back(tangent2);
+					// detect NaNs in tangent
+					const auto nan_judgement0 = glm::isnan(tangent0) || glm::isinf(tangent0);
+					const auto nan_judgement1 = glm::isnan(tangent1) || glm::isinf(tangent1);
+					const auto nan_judgement2 = glm::isnan(tangent2) || glm::isinf(tangent2);
+					const auto nan_judgement  = nan_judgement0 || nan_judgement1 || nan_judgement2;
+					const bool should_discard = nan_judgement.x || nan_judgement.y || nan_judgement.z;
+
+					if (should_discard) [[unlikely]]
+					{
+						for (auto i : Range(3))
+						{
+							// if present, swizzle normal vector as the tangent vector
+							const auto normal  = normal_buffer[normal_offset + i];
+							const auto swizzle = glm::vec3{normal.y, normal.z, normal.x};
+
+							tangent.push_back(swizzle);
+						}
+					}
+					else
+					{
+						tangent.push_back(tangent0);
+						tangent.push_back(tangent1);
+						tangent.push_back(tangent2);
+					}
 				}
 			}
 		}
@@ -400,17 +432,18 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		return output_primitive;
 	}
 
-	Node Model::parse_node(const tinygltf::Model& model, uint32_t idx, const glm::mat4& transformation)
+	Node Model::parse_node(const tinygltf::Model& model, uint32_t idx)
 	{
 		const auto& gltf_node = model.nodes[idx];
 
 		Node output;
 		output.mesh_idx       = gltf_node.mesh;
-		output.transformation = transformation * node_transform(gltf_node);
+		output.set_transformation(gltf_node);
+		output.name = gltf_node.name;
 
 		for (auto idx : gltf_node.children)
 		{
-			auto child_node = parse_node(model, idx, output.transformation);
+			auto child_node = parse_node(model, idx);
 			nodes.push_back(child_node);
 			output.children.emplace_back(nodes.size() - 1);
 		}
@@ -598,7 +631,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 			for (auto i : scene.nodes)
 			{
-				auto node = parse_node(gltf_model, i, glm::mat4(1.0));
+				auto node = parse_node(gltf_model, i);
 				nodes.push_back(node);
 				output_scene.nodes.emplace_back(nodes.size() - 1);
 			}

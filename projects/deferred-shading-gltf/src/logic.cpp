@@ -1252,7 +1252,11 @@ void App_render_logic::scene_explorer_node(size_t node_idx)
 	if (ImGui::TreeNode(tree_node_name.c_str()))
 	{
 		if (node.mesh_idx < core->params.model->meshes.size())
-			ImGui::Text("Mesh: [Mesh %d] %s", node.mesh_idx, core->params.model->meshes[node.mesh_idx].name.c_str());
+			ImGui::BulletText("Mesh: [Mesh %d] %s", node.mesh_idx, core->params.model->meshes[node.mesh_idx].name.c_str());
+
+		ImGui::BulletText("Scale: [%.3f, %.3f, %.3f]", node.scale.x, node.scale.y, node.scale.z);
+		ImGui::BulletText("Translation: [%.3f, %.3f, %.3f]", node.translation.x, node.translation.y, node.translation.z);
+		ImGui::BulletText("Rotation: [%.3f, %.3f, %.3f, %.3f]", node.rotation.x, node.rotation.y, node.rotation.z, node.rotation.w);
 
 		for (auto child_node : node.children) scene_explorer_node(child_node);
 

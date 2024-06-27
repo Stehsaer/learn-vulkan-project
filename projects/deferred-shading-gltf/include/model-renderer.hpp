@@ -6,6 +6,7 @@ struct Renderer_drawcall
 {
 	uint32_t                  node_idx;
 	io::mesh::gltf::Primitive primitive;
+	glm::mat4                 transformation;
 
 	auto operator<=>(const Renderer_drawcall& other) const
 	{
@@ -53,6 +54,7 @@ class Model_renderer
 	void render_node(
 		const io::mesh::gltf::Model&               model,
 		uint32_t                                   idx,
+		const glm::mat4&                           transformation,
 		const algorithm::frustum_culling::Frustum& frustum,
 		const glm::vec3&                           eye_position,
 		const glm::vec3&                           eye_path,

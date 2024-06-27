@@ -1,6 +1,9 @@
 precision highp float;
 
+#ifndef PI_DEFINED
 const float PI = 3.1415926;
+#define PI_DEFINED
+#endif
 
 vec3 halfway_vector(vec3 light_dir, vec3 view_dir)
 {

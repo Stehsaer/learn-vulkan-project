@@ -41,7 +41,7 @@ struct Gbuffer_pipeline
 {
 	static constexpr vk::Format normal_format = vk::Format::eR32G32B32A32Sfloat, color_format = vk::Format::eR8G8B8A8Unorm,
 								pbr_format = vk::Format::eR8G8B8A8Unorm, emissive_format = vk::Format::eR8G8B8A8Unorm,
-								depth_format = vk::Format::eD24UnormS8Uint;
+								depth_format = vk::Format::eD32Sfloat;
 
 	// At Gbuffer Vert, set = 0
 	struct Camera_uniform

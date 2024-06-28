@@ -188,16 +188,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		void load(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 
-		void load_material(Loader_context& loader_context, const tinygltf::Model& gltf_model);
-		void load_scene(const tinygltf::Model& gltf_model);
-		void load_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model);
+		void load_all_materials(Loader_context& loader_context, const tinygltf::Model& gltf_model);
+		void load_all_scenes(const tinygltf::Model& gltf_model);
+		void load_all_nodes(const tinygltf::Model& model);
+		void load_all_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 
 		void generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context);
 
 		void create_descriptor_pool(const Loader_context& context);
 
 		Primitive parse_primitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, Mesh_data_context& mesh_context);
-
-		Node parse_node(const tinygltf::Model& model, uint32_t idx);
 	};
 }

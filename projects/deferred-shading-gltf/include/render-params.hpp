@@ -60,9 +60,9 @@ struct Render_params
 	struct Draw_parameters
 	{
 		glm::mat4                                          view_projection;
-		algorithm::frustum_culling::Frustum                gbuffer_frustum;
+		algorithm::geometry::frustum::Frustum                        gbuffer_frustum;
 		std::array<glm::mat4, 3>                           shadow_transformations;
-		std::array<algorithm::frustum_culling::Frustum, 3> shadow_frustums;
+		std::array<algorithm::geometry::frustum::Frustum, 3>         shadow_frustums;
 		glm::vec3                                          light_dir, light_color, eye_position, eye_path;
 		float                                              shadow_div_1, shadow_div_2;
 	};

@@ -51,7 +51,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::wavefront
 				}
 
 				const glm::vec3 tangent
-					= algorithm::vertex_tangent(positions[0], positions[1], positions[2], uvs[0], uvs[1], uvs[2]);
+					= algorithm::geometry::vertex_tangent(positions[0], positions[1], positions[2], uvs[0], uvs[1], uvs[2]);
 
 				for (auto i : Range(3))
 				{

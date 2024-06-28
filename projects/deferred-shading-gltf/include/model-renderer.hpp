@@ -34,7 +34,7 @@ class Model_renderer
 	Draw_result render_gltf(
 		const Command_buffer&                                        command_buffer,
 		const io::mesh::gltf::Model&                                 model,
-		const algorithm::frustum_culling::Frustum&                   frustum,
+		const algorithm::geometry::frustum::Frustum&                 frustum,
 		const glm::vec3&                                             eye_position,
 		const glm::vec3&                                             eye_path,
 		const Graphics_pipeline&                                     single_pipeline,
@@ -52,14 +52,14 @@ class Model_renderer
 	);
 
 	void render_node(
-		const io::mesh::gltf::Model&               model,
-		uint32_t                                   idx,
-		const glm::mat4&                           transformation,
-		const algorithm::frustum_culling::Frustum& frustum,
-		const glm::vec3&                           eye_position,
-		const glm::vec3&                           eye_path,
-		float&                                     near,
-		float&                                     far
+		const io::mesh::gltf::Model&                 model,
+		uint32_t                                     idx,
+		const glm::mat4&                             transformation,
+		const algorithm::geometry::frustum::Frustum& frustum,
+		const glm::vec3&                             eye_position,
+		const glm::vec3&                             eye_path,
+		float&                                       near,
+		float&                                       far
 	);
 
 	uint32_t get_object_count() const

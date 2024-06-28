@@ -199,7 +199,7 @@ void Hdri_resource::generate_environment(const Environment& env, const Image_vie
 			);
 	}
 
-	const uint32_t temp_mipmapped_env_level = algorithm::log2_mipmap_level(resolution, resolution);
+	const uint32_t temp_mipmapped_env_level = algorithm::texture::log2_mipmap_level(resolution, resolution);
 
 	{  // Temporary Mipmapped Environment
 		mipmapped_environment = Image(
@@ -386,7 +386,7 @@ void Hdri_resource::generate_environment(const Environment& env, const Image_vie
 		}
 
 		/* Create Mipmap */
-		algorithm::generate_mipmap(
+		algorithm::texture::generate_mipmap(
 			command_buffer,
 			mipmapped_environment,
 			resolution,

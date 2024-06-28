@@ -184,7 +184,7 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 		command_buffer.copy_buffer_to_image(image, staging_buffer, vk::ImageLayout::eTransferDstOptimal, {copy_info});
 
 		if (generate_mipmap)
-			algorithm::generate_mipmap(command_buffer, image, image_data.width, image_data.height, mipmap_level);
+			algorithm::texture::generate_mipmap(command_buffer, image, image_data.width, image_data.height, mipmap_level);
 
 		command_buffer.layout_transit(
 			image,
@@ -290,7 +290,7 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 		command_buffer.copy_buffer_to_image(image, staging_buffer, vk::ImageLayout::eTransferDstOptimal, {copy_info});
 
 		if (generate_mipmap)
-			algorithm::generate_mipmap(command_buffer, image, image_data.width, image_data.height, mipmap_level);
+			algorithm::texture::generate_mipmap(command_buffer, image, image_data.width, image_data.height, mipmap_level);
 
 		command_buffer.layout_transit(
 			image,
@@ -338,7 +338,7 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 		mipmap_level = 1;
 
 		for (auto i : Range(image_data.raw_data.size()))
-			image_converted[i] = algorithm::f32_to_f16_clamped(image_data.raw_data[i]);
+			image_converted[i] = algorithm::conversion::f32_to_f16_clamped(image_data.raw_data[i]);
 
 		// Create Objects
 

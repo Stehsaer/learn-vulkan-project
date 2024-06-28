@@ -172,7 +172,7 @@ void Shadow_pipeline::create(const Environment& env)
 									   .setLineWidth(1)
 									   .setDepthBiasEnable(true)
 									   .setDepthBiasConstantFactor(-0.25)
-									   .setDepthBiasSlopeFactor(-1.25);
+									   .setDepthBiasSlopeFactor(-0.25);
 		create_info.setPRasterizationState(&rasterization_state);
 
 		// Multisample State
@@ -209,7 +209,7 @@ void Shadow_pipeline::create(const Environment& env)
 		env.debug_marker.set_object_name(single_sided_pipeline_blend, "Shadow Pipeline (Single Sided Blend)");
 
 		//* Double Sided
-		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone).setDepthBiasConstantFactor(1.5).setDepthBiasSlopeFactor(1.75);
+		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone).setDepthBiasConstantFactor(1.25).setDepthBiasSlopeFactor(1.75);
 
 		double_sided_pipeline = Graphics_pipeline(env.device, opaque_create_info);
 		env.debug_marker.set_object_name(double_sided_pipeline, "Shadow Pipeline (Double Sided Opaque)");

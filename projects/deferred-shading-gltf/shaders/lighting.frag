@@ -56,7 +56,9 @@ float get_shadow(vec3 position)
 	shadow_coord = params.shadow[index] * vec4(position, 1.0);
 	shadow_coord /= shadow_coord.w;
 	shadow_coord.xy = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
-	float is_shadow = step(shadow_coord.z, texture(shadow_map[index], shadow_coord.xy).r);
+
+	float sampled_depth = texture(shadow_map[index], shadow_coord.xy).r;
+	float is_shadow = step(shadow_coord.z, sampled_depth);
 
 	return is_shadow;
 }

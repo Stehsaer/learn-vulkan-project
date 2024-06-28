@@ -394,9 +394,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 						= std::tuple{uv_buffer[uv_offset + idx], uv_buffer[uv_offset + idx + 1], uv_buffer[uv_offset + idx + 2]};
 
 					const auto [tangent0, tangent1, tangent2] = std::tuple{
-						algorithm::vertex_tangent(pos0, pos1, pos2, uv0, uv1, uv2),
-						algorithm::vertex_tangent(pos1, pos0, pos2, uv1, uv0, uv2),
-						algorithm::vertex_tangent(pos2, pos1, pos0, uv2, uv1, uv0)
+						algorithm::geometry::vertex_tangent(pos0, pos1, pos2, uv0, uv1, uv2),
+						algorithm::geometry::vertex_tangent(pos1, pos0, pos2, uv1, uv0, uv2),
+						algorithm::geometry::vertex_tangent(pos2, pos1, pos0, uv2, uv1, uv0)
 					};
 
 					// detect NaNs in tangent
@@ -432,26 +432,26 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		return output_primitive;
 	}
 
-	Node Model::parse_node(const tinygltf::Model& model, uint32_t idx)
+	void Model::load_all_nodes(const tinygltf::Model& model)
 	{
-		const auto& gltf_node = model.nodes[idx];
+		nodes.reserve(model.nodes.size());
 
-		Node output;
-		output.mesh_idx       = gltf_node.mesh;
-		output.set_transformation(gltf_node);
-		output.name = gltf_node.name;
-
-		for (auto idx : gltf_node.children)
+		for (const auto& node : model.nodes)
 		{
-			auto child_node = parse_node(model, idx);
-			nodes.push_back(child_node);
-			output.children.emplace_back(nodes.size() - 1);
-		}
+			Node output;
 
-		return output;
+			output.mesh_idx = node.mesh;
+			output.set_transformation(node);
+			output.name = node.name;
+
+			output.children.resize(node.children.size());
+			std::copy(node.children.begin(), node.children.end(), output.children.begin());
+
+			nodes.push_back(output);
+		}
 	}
 
-	void Model::load_material(Loader_context& context, const tinygltf::Model& gltf_model)
+	void Model::load_all_materials(Loader_context& context, const tinygltf::Model& gltf_model)
 	{
 		for (auto i : Range(gltf_model.images.size()))
 		{
@@ -621,26 +621,22 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 	}
 
-	void Model::load_scene(const tinygltf::Model& gltf_model)
+	void Model::load_all_scenes(const tinygltf::Model& gltf_model)
 	{
-		nodes.reserve(gltf_model.nodes.size());
 		for (const auto& scene : gltf_model.scenes)
 		{
 			Scene output_scene;
+
 			output_scene.name = scene.name;
 
-			for (auto i : scene.nodes)
-			{
-				auto node = parse_node(gltf_model, i);
-				nodes.push_back(node);
-				output_scene.nodes.emplace_back(nodes.size() - 1);
-			}
+			output_scene.nodes.resize(scene.nodes.size());
+			std::copy(scene.nodes.begin(), scene.nodes.end(), output_scene.nodes.begin());
 
 			scenes.push_back(output_scene);
 		}
 	}
 
-	void Model::load_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model)
+	void Model::load_all_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model)
 	{
 		Mesh_data_context mesh_context;
 
@@ -838,17 +834,18 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		// parse Materials
 		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Load_material;
-		load_material(loader_context, gltf_model);
+		load_all_materials(loader_context, gltf_model);
 
 		// parse Meshes
 		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Load_mesh;
-		load_meshes(loader_context, gltf_model);
+		load_all_meshes(loader_context, gltf_model);
 
 		const auto submit_buffer = Command_buffer::to_vector(loader_context.command_buffers);
 		loader_context.transfer_queue.submit(vk::SubmitInfo().setCommandBuffers(submit_buffer));
 
-		// parse nodes
-		load_scene(gltf_model);
+		// parse scenes & nodes
+		load_all_scenes(gltf_model);
+		load_all_nodes(gltf_model);
 
 		create_descriptor_pool(loader_context);
 
@@ -970,7 +967,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		width = tex.width, height = tex.height;
 		component_count = tex.component == 3 ? 4 : tex.component;
-		mipmap_levels   = algorithm::log2_mipmap_level(width, height, 128);
+		mipmap_levels   = algorithm::texture::log2_mipmap_level(width, height, 128);
 		name            = tex.name;
 
 		image = Image(
@@ -1081,7 +1078,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			copy_info(0, 0, 0, {vk::ImageAspectFlagBits::eColor, 0, 0, 1}, {0, 0, 0}, vk::Extent3D(width, height, 1));
 		command_buffer.copy_buffer_to_image(image, staging_buffer, vk::ImageLayout::eTransferDstOptimal, {copy_info});
 
-		algorithm::generate_mipmap(
+		algorithm::texture::generate_mipmap(
 			command_buffer,
 			image,
 			width,

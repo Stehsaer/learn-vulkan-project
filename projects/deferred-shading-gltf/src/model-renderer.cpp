@@ -1,14 +1,14 @@
 #include "model-renderer.hpp"
 
 void Model_renderer::render_node(
-	const io::mesh::gltf::Model&               model,
-	uint32_t                                   node_idx,
-	const glm::mat4&                           transformation,
-	const algorithm::frustum_culling::Frustum& frustum,
-	const glm::vec3&                           eye_position,
-	const glm::vec3&                           eye_path,
-	float&                                     near,
-	float&                                     far
+	const io::mesh::gltf::Model&                 model,
+	uint32_t                                     node_idx,
+	const glm::mat4&                             transformation,
+	const algorithm::geometry::frustum::Frustum& frustum,
+	const glm::vec3&                             eye_position,
+	const glm::vec3&                             eye_path,
+	float&                                       near,
+	float&                                       far
 )
 {
 	const auto& node = model.nodes[node_idx];
@@ -37,7 +37,7 @@ void Model_renderer::render_node(
 
 		/* Construct AABB after transformation */
 
-		auto edge_points = algorithm::generate_boundaries(min, max);
+		auto edge_points = algorithm::geometry::generate_boundaries(min, max);
 
 		glm::vec3 min_coord(std::numeric_limits<float>::max()), max_coord(-std::numeric_limits<float>::max());
 
@@ -49,7 +49,7 @@ void Model_renderer::render_node(
 			max_coord        = glm::max(max_coord, pt);
 		}
 
-		const auto bounding_box = algorithm::frustum_culling::AABB::from_min_max(min_coord, max_coord);
+		const auto bounding_box = algorithm::geometry::frustum::AABB::from_min_max(min_coord, max_coord);
 
 		const auto edge_bounded
 			= bounding_box.intersect_or_forward(frustum.bottom) && bounding_box.intersect_or_forward(frustum.top)
@@ -110,7 +110,7 @@ void Model_renderer::render_node(
 Model_renderer::Draw_result Model_renderer::render_gltf(
 	const Command_buffer&                                        command_buffer,
 	const io::mesh::gltf::Model&                                 model,
-	const algorithm::frustum_culling::Frustum&                   frustum,
+	const algorithm::geometry::frustum::Frustum&                 frustum,
 	const glm::vec3&                                             eye_position,
 	const glm::vec3&                                             eye_path,
 	const Graphics_pipeline&                                     single_pipeline,

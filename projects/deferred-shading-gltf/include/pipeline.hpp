@@ -78,8 +78,15 @@ struct Lighting_pipeline
 	struct Params
 	{
 		alignas(16) glm::mat4 view_projection_inv;
-		alignas(16) glm::vec3 camera_position;
 		alignas(16) glm::mat4 shadow[3];
+
+		alignas(16) struct
+		{
+			glm::vec2 texel_size;  // uv size of each texel
+			glm::vec2 view_size;   // size of the shadow view
+		} shadow_size[3];
+
+		alignas(16) glm::vec3 camera_position;
 		alignas(16) glm::vec3 sunlight_pos;
 		alignas(16) glm::vec3 sunlight_color;
 		alignas(4) float emissive_brightness = 1;

@@ -16,10 +16,14 @@ layout(set = 0, binding = 5) uniform sampler2D emissive_tex;
 
 layout(std140, set = 0, binding = 6) uniform Params {
 	mat4 view_projection_inv;
-	vec3 camera_position;
 	mat4 shadow[3];
+
+	vec4 shadow_sizes[3]; // XY: uv size per texel; ZW: size of the shadow view
+
+	vec3 camera_position;
 	vec3 sunlight_pos;
 	vec3 sunlight_color;
+
 	float emissive_brightness;
 	float skybox_brightness;
 } params;
@@ -38,7 +42,20 @@ const vec3 rgb_brightness_coeff = vec3(0.21, 0.72, 0.07);
 
 const float min_log_luminance = -10, max_log_luminance = 14;
 
-float get_shadow(vec3 position)
+float sample_shadowmap(in int index, in vec2 uv, in float depth)
+{
+	float sampled_depth = texture(shadow_map[index], uv).r;
+	float is_shadow = step(depth, sampled_depth);
+	return is_shadow;
+}
+
+vec2 rotate(in vec2 v, in float theta)
+{
+	return mat2(vec2(cos(theta), sin(theta)), vec2(-sin(theta), cos(theta))) * v;
+}
+
+
+float get_shadow(in vec3 position)
 {
 	int index = 0; vec4 shadow_coord;
 
@@ -55,12 +72,27 @@ float get_shadow(vec3 position)
 	// Calculate Shadow
 	shadow_coord = params.shadow[index] * vec4(position, 1.0);
 	shadow_coord /= shadow_coord.w;
-	shadow_coord.xy = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
+	vec2 shadow_uv = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
+	float depth = shadow_coord.z;
 
-	float sampled_depth = texture(shadow_map[index], shadow_coord.xy).r;
-	float is_shadow = step(shadow_coord.z, sampled_depth);
+	float rotate_offset = fract(sin(gl_FragCoord.x * 5 + gl_FragCoord.y * 13) * 30) * PI * 2;
+	vec2 sample_delta = params.shadow_sizes[index].xy;
 
-	return is_shadow;
+	float shadow_accumulate = sample_shadowmap(index, shadow_uv, depth);
+	int num = 1;
+
+#pragma unroll_loop_start
+	for(int i = 0; i < 8; i++)
+	{
+		vec2 uv = shadow_uv + rotate(sample_delta, rotate_offset + i * PI / 4.0) / (i % 2 + 1);
+		if(uv.x > 1.0 || uv.x < 0.0 || uv.y > 1.0 || uv.y < 0.0) continue;
+
+		shadow_accumulate += sample_shadowmap(index, uv, depth);
+		num++;
+	}
+#pragma unroll_loop_end
+
+	return shadow_accumulate / num;
 }
 
 void main()

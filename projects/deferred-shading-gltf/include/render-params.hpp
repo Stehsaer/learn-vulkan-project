@@ -3,14 +3,14 @@
 #include "environment.hpp"
 #include "hdri.hpp"
 
-struct Render_params
+struct Render_source
 {
-
-	/*====== Render Sources ======*/
-
 	std::shared_ptr<io::mesh::gltf::Model> model;
 	std::shared_ptr<Hdri_resource>         hdri;
+};
 
+struct Render_params
+{
 	/*====== Cameras ======*/
 
 	float             fov = 45, near = 0.01, far = 100.0;
@@ -18,7 +18,7 @@ struct Render_params
 	bool              auto_adjust_near_plane = true;
 	Camera_controller camera_controller;
 
-	/*====== Exposure ======*/
+	/*====== Lighting & Exposure ======*/
 
 	float exposure_ev         = 0;
 	float emissive_brightness = 1;
@@ -30,7 +30,7 @@ struct Render_params
 	/*====== Shadow ======*/
 
 	std::array<float, 3> shadow_near, shadow_far;
-	float                csm_blend_factor = 0.8;
+	float                csm_blend_factor = 0.5;
 
 	/*====== Debug ======*/
 
@@ -57,15 +57,24 @@ struct Render_params
 
 	/*====== Draw Parameters ======*/
 
-	struct Draw_parameters
+	struct Runtime_parameters
 	{
+		using Frustum = algorithm::geometry::frustum::Frustum;
+
+		// Transformations
 		glm::mat4                                          view_projection;
-		algorithm::geometry::frustum::Frustum                        gbuffer_frustum;
-		std::array<glm::mat4, 3>                           shadow_transformations;
-		std::array<algorithm::geometry::frustum::Frustum, 3>         shadow_frustums;
-		glm::vec3                                          light_dir, light_color, eye_position, eye_path;
-		float                                              shadow_div_1, shadow_div_2;
+		std::array<glm::mat4, csm_count>                   shadow_transformations;
+
+		// Frustums
+		Frustum                        gbuffer_frustum;
+		std::array<Frustum, csm_count> shadow_frustums;
+
+		// Sizes
+		std::array<glm::vec2, csm_count> shadow_view_sizes;
+
+		glm::vec3 light_dir, light_color;  // Directional Light
+		glm::vec3 eye_position, eye_path;  // Eye
 	};
 
-	Draw_parameters get_draw_parameters(const Environment& env) const;
+	Runtime_parameters gen_runtime_parameters(const Environment& env) const;
 };

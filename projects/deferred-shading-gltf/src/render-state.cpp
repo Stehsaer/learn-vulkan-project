@@ -1,8 +1,8 @@
 #include "render-params.hpp"
 
-Render_params::Draw_parameters Render_params::get_draw_parameters(const Environment& env) const
+Render_params::Runtime_parameters Render_params::gen_runtime_parameters(const Environment& env) const
 {
-	Draw_parameters out_params;
+	Runtime_parameters out_params;
 
 	glm::mat4 gbuffer_projection;
 
@@ -49,8 +49,7 @@ Render_params::Draw_parameters Render_params::get_draw_parameters(const Environm
 			 tempz_2 = gbuffer_projection * glm::vec4(0, 0, -zdiv_2, 1);
 		tempz_1 /= tempz_1.w, tempz_2 /= tempz_2.w;
 
-		out_params.shadow_div_1 = tempz_1.z;
-		out_params.shadow_div_2 = tempz_2.z;
+		const auto shadow_div_1 = tempz_1.z, shadow_div_2 = tempz_2.z;
 
 		// world -> old-shadow-view
 		const auto shadow_view = glm::lookAt(
@@ -66,7 +65,7 @@ Render_params::Draw_parameters Render_params::get_draw_parameters(const Environm
 		const auto shadow_transformation = shadow_view * view_projection_inv;
 
 		auto calc_shadow_mat = [=](float depth_min, float depth_max, float near, float far
-							   ) -> std::tuple<glm::mat4, algorithm::geometry::frustum::Frustum>
+							   ) -> std::tuple<glm::mat4, algorithm::geometry::frustum::Frustum, glm::vec2>
 		{
 			// generate and transform boundaries
 			auto arr = algorithm::geometry::generate_boundaries({-1, -1, depth_min}, {1, 1, depth_max});
@@ -148,17 +147,21 @@ Render_params::Draw_parameters Render_params::get_draw_parameters(const Environm
 				far
 			);
 
-			return {shadow_view_projection, shadow_frustum};
+			return {
+				shadow_view_projection, // shadow transformation
+				shadow_frustum, // shadow frustum
+				{width, height}  // shadow view cube 2d size
+			};
 		};
 
-		std::tie(out_params.shadow_transformations[0], out_params.shadow_frustums[0])
-			= calc_shadow_mat(0, out_params.shadow_div_1, shadow_near[0], shadow_far[0]);
+		std::tie(out_params.shadow_transformations[0], out_params.shadow_frustums[0], out_params.shadow_view_sizes[0])
+			= calc_shadow_mat(0, shadow_div_1, shadow_near[0], shadow_far[0]);
 
-		std::tie(out_params.shadow_transformations[1], out_params.shadow_frustums[1])
-			= calc_shadow_mat(out_params.shadow_div_1, out_params.shadow_div_2, shadow_near[1], shadow_far[1]);
+		std::tie(out_params.shadow_transformations[1], out_params.shadow_frustums[1], out_params.shadow_view_sizes[1])
+			= calc_shadow_mat(shadow_div_1, shadow_div_2, shadow_near[1], shadow_far[1]);
 
-		std::tie(out_params.shadow_transformations[2], out_params.shadow_frustums[2])
-			= calc_shadow_mat(out_params.shadow_div_2, 1, shadow_near[2], shadow_far[2]);
+		std::tie(out_params.shadow_transformations[2], out_params.shadow_frustums[2], out_params.shadow_view_sizes[2])
+			= calc_shadow_mat(shadow_div_2, 1, shadow_near[2], shadow_far[2]);
 
 		// DEBUG, show shadow perspective
 		if (show_shadow_perspective)

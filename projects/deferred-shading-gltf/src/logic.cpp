@@ -81,8 +81,8 @@ void App_idle_logic::ui_logic()
 		ImGui::Text("Drop File Here to Load!");
 		ImGui::Separator();
 
-		ImGui::BulletText("Model: %s", core->params.model == nullptr ? "Not Loaded" : "Loaded");
-		ImGui::BulletText("HDRI: %s", core->params.hdri == nullptr ? "Not Loaded" : "Loaded");
+		ImGui::BulletText("Model: %s", core->source.model == nullptr ? "Not Loaded" : "Loaded");
+		ImGui::BulletText("HDRI: %s", core->source.hdri == nullptr ? "Not Loaded" : "Loaded");
 
 		ImGui::Separator();
 		if (ImGui::Button("Load Built-in Model")) load_builtin_model = true;
@@ -285,19 +285,19 @@ void App_render_logic::draw(uint32_t idx)
 {
 	// update draw parameters
 	{
-		draw_params = core->params.get_draw_parameters(core->env);
+		draw_params = core->params.gen_runtime_parameters(core->env);
 
 		const Gbuffer_pipeline::Camera_uniform gbuffer_camera{draw_params.view_projection};
 
-		Lighting_pipeline::Params lighting_params{
-			glm::inverse(draw_params.view_projection),
-			draw_params.eye_position,
-			{},
-			draw_params.light_dir,
-			core->params.light_color * core->params.light_intensity,
-			core->params.emissive_brightness,
-			core->params.skybox_brightness
-		};
+		Lighting_pipeline::Params lighting_params{};
+		{
+			lighting_params.view_projection_inv = glm::inverse(draw_params.view_projection);
+			lighting_params.camera_position     = draw_params.eye_position;
+			lighting_params.skybox_brightness   = core->params.skybox_brightness;
+			lighting_params.emissive_brightness = core->params.emissive_brightness;
+			lighting_params.sunlight_pos        = draw_params.light_dir;
+			lighting_params.sunlight_color      = draw_params.light_color;
+		}
 
 		std::array<Shadow_pipeline::Shadow_uniform, csm_count> shadow_uniforms;
 
@@ -305,6 +305,9 @@ void App_render_logic::draw(uint32_t idx)
 		{
 			lighting_params.shadow[i] = draw_params.shadow_transformations[i];
 			shadow_uniforms[i]        = {draw_params.shadow_transformations[i]};
+
+			lighting_params.shadow_size[i].texel_size = glm::vec2(1.0 / shadow_map_res[i]);
+			lighting_params.shadow_size[i].view_size  = draw_params.shadow_view_sizes[i];
 		}
 
 		const Composite_pipeline::Exposure_param composite_param{exp2(core->params.exposure_ev), core->params.bloom_intensity};
@@ -387,27 +390,27 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 
 		auto bind_vertex = [=, this](const io::mesh::gltf::Primitive& primitive)
 		{
-			const auto& model = core->params.model;
+			const auto& model = *core->source.model;
 			command_buffer->bindVertexBuffers(
 				0,
-				{model->vec3_buffers[primitive.position_buffer], model->vec2_buffers[primitive.uv_buffer]},
+				{model.vec3_buffers[primitive.position_buffer], model.vec2_buffers[primitive.uv_buffer]},
 				{primitive.position_offset * sizeof(glm::vec3), primitive.uv_offset * sizeof(glm::vec2)}
 			);
 		};
 
 		auto bind_vertex_opaque = [=, this](const io::mesh::gltf::Primitive& primitive)
 		{
-			const auto& model = core->params.model;
+			const auto& model = *core->source.model;
 			command_buffer->bindVertexBuffers(
 				0,
-				{model->vec3_buffers[primitive.position_buffer]},
+				{model.vec3_buffers[primitive.position_buffer]},
 				{primitive.position_offset * sizeof(glm::vec3)}
 			);
 		};
 
 		auto draw_result = shadow_renderer[csm_idx].render_gltf(
 			command_buffer,
-			*core->params.model,
+			*core->source.model,
 			draw_params.shadow_frustums[csm_idx],
 			{0, 0, 0},
 			-draw_params.light_dir,
@@ -505,7 +508,7 @@ void App_render_logic::gbuffer_thread_work()
 
 			auto bind_vertex = [=, this](const io::mesh::gltf::Primitive& primitive)
 			{
-				const auto& model = core->params.model;
+				const auto& model = core->source.model;
 				command_buffer->bindVertexBuffers(
 					0,
 					{model->vec3_buffers[primitive.position_buffer],
@@ -521,7 +524,7 @@ void App_render_logic::gbuffer_thread_work()
 
 			auto draw_result = gbuffer_renderer.render_gltf(
 				command_buffer,
-				*(core->params.model),
+				*(core->source.model),
 				draw_params.gbuffer_frustum,
 				draw_params.eye_position,
 				draw_params.eye_path,
@@ -649,7 +652,7 @@ void App_render_logic::draw_lighting(uint32_t idx, const Command_buffer& command
 			vk::PipelineBindPoint::eGraphics,
 			core->Pipeline_set.lighting_pipeline.pipeline_layout,
 			0,
-			{core->render_targets[idx].lighting_rt.input_descriptor_set, core->params.hdri->descriptor_set}
+			{core->render_targets[idx].lighting_rt.input_descriptor_set, core->source.hdri->descriptor_set}
 		);
 
 		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, core->Pipeline_set.lighting_pipeline.pipeline);
@@ -1245,14 +1248,14 @@ void App_render_logic::ui_logic()
 
 void App_render_logic::scene_explorer_node(size_t node_idx)
 {
-	const auto& node = core->params.model->nodes[node_idx];
+	const auto& node = core->source.model->nodes[node_idx];
 
 	const auto tree_node_name = std::format("[Node {1}] {0}##node_{1}", node.name, node_idx);
 
 	if (ImGui::TreeNode(tree_node_name.c_str()))
 	{
-		if (node.mesh_idx < core->params.model->meshes.size())
-			ImGui::BulletText("Mesh: [Mesh %d] %s", node.mesh_idx, core->params.model->meshes[node.mesh_idx].name.c_str());
+		if (node.mesh_idx < core->source.model->meshes.size())
+			ImGui::BulletText("Mesh: [Mesh %d] %s", node.mesh_idx, core->source.model->meshes[node.mesh_idx].name.c_str());
 
 		ImGui::BulletText("Scale: [%.3f, %.3f, %.3f]", node.scale.x, node.scale.y, node.scale.z);
 		ImGui::BulletText("Translation: [%.3f, %.3f, %.3f]", node.translation.x, node.translation.y, node.translation.z);
@@ -1266,7 +1269,7 @@ void App_render_logic::scene_explorer_node(size_t node_idx)
 
 void App_render_logic::scene_explorer()
 {
-	const auto& model = *core->params.model;
+	const auto& model = *core->source.model;
 
 	ImGui::BeginTabBar("Tabs");
 
@@ -1307,7 +1310,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 	auto load_work = [this]
 	{
 		core->env.log_msg("Loading model from \"{}\"...", load_path);
-		core->params.model = std::make_shared<io::mesh::gltf::Model>();  // create new
+		core->source.model = std::make_shared<io::mesh::gltf::Model>();  // create new
 
 		// Loader Context
 		io::mesh::gltf::Loader_context loader_context;
@@ -1332,7 +1335,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 		{
 			if (load_path == LOAD_DEFAULT_MODEL_TOKEN)
 			{
-				core->params.model->load_gltf_memory(
+				core->source.model->load_gltf_memory(
 					loader_context,
 					std::span((uint8_t*)binary_resource::damaged_helmet_data, binary_resource::damaged_helmet_size)
 				);
@@ -1340,9 +1343,9 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 			else
 			{
 				if (extension == ".gltf")
-					core->params.model->load_gltf_ascii(loader_context, load_path);
+					core->source.model->load_gltf_ascii(loader_context, load_path);
 				else
-					core->params.model->load_gltf_bin(loader_context, load_path);
+					core->source.model->load_gltf_bin(loader_context, load_path);
 			}
 
 			core->env.log_msg("Loaded model");
@@ -1351,7 +1354,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 		{
 			load_err_msg       = e.msg;
 			load_stage         = io::mesh::gltf::Load_stage::Error;
-			core->params.model = nullptr;
+			core->source.model = nullptr;
 
 			core->env.log_err("Load model failed, reason: {}", e.msg);
 			return;
@@ -1384,7 +1387,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 
 		if (quit)
 		{
-			if (load_stage == io::mesh::gltf::Load_stage::Finished && core->params.hdri != nullptr)
+			if (load_stage == io::mesh::gltf::Load_stage::Finished && core->source.hdri != nullptr)
 			{
 				return std::make_shared<App_render_logic>(core);
 			}
@@ -1506,7 +1509,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 	{
 		core->env.log_msg("Loading HDRi from \"{}\"...", load_path);
 
-		core->params.hdri = std::make_shared<Hdri_resource>();
+		core->source.hdri = std::make_shared<Hdri_resource>();
 		io::images::Stbi_image_utility hdri_image;
 
 		// load image
@@ -1536,7 +1539,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 			{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
 		);
 
-		core->params.hdri->generate(core->env, hdri_view, 1024, core->Pipeline_set.lighting_pipeline.skybox_input_layout);
+		core->source.hdri->generate(core->env, hdri_view, 1024, core->Pipeline_set.lighting_pipeline.skybox_input_layout);
 
 		load_state = Load_state::Load_success;
 		core->env.log_msg("Loaded HDRi");
@@ -1549,7 +1552,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 		core->env.log_err("Load HDRi failed, reason: {}", e.msg);
 
 		// cleanup
-		core->params.hdri = nullptr;
+		core->source.hdri = nullptr;
 	}
 
 	// After load
@@ -1559,7 +1562,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 
 		if (load_state == Load_state::Quit || load_state == Load_state::Load_success)
 		{
-			if (core->params.model != nullptr)
+			if (core->source.model != nullptr)
 			{
 				return std::make_shared<App_render_logic>(core);
 			}

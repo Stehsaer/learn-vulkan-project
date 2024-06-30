@@ -23,26 +23,6 @@ class Application_logic_base
 
 	// Virtual work function, returns nullptr when terminating
 	virtual std::shared_ptr<Application_logic_base> work() = 0;
-
-	void test(const std::string& path)
-	{
-		const auto extension = std::filesystem::path(path).extension();
-		core->params.model   = std::make_shared<io::mesh::gltf::Model>();
-
-		io::mesh::gltf::Loader_context loader_context;
-		loader_context.allocator                     = core->env.allocator;
-		loader_context.command_pool                  = core->env.command_pool;
-		loader_context.device                        = core->env.device;
-		loader_context.transfer_queue                = core->env.t_queue;
-		loader_context.physical_device               = core->env.physical_device;
-		loader_context.texture_descriptor_set_layout = core->Pipeline_set.gbuffer_pipeline.descriptor_set_layout_texture;
-		loader_context.albedo_only_layout            = core->Pipeline_set.shadow_pipeline.descriptor_set_layout_texture;
-
-		if (extension == ".gltf")
-			core->params.model->load_gltf_ascii(loader_context, path);
-		else if (extension == ".glb")
-			core->params.model->load_gltf_bin(loader_context, path);
-	}
 };
 
 class App_render_logic : public Application_logic_base
@@ -59,7 +39,7 @@ class App_render_logic : public Application_logic_base
 	std::array<Model_renderer, csm_count> shadow_renderer;
 	Model_renderer                        gbuffer_renderer;
 
-	Render_params::Draw_parameters draw_params;
+	Render_params::Runtime_parameters draw_params;
 
 	/* Multi-threading */
 

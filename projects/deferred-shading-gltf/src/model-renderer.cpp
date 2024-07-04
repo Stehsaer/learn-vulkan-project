@@ -1,24 +1,29 @@
 #include "model-renderer.hpp"
 
 void Model_renderer::render_node(
-	const io::mesh::gltf::Model&                 model,
-	uint32_t                                     node_idx,
-	const glm::mat4&                             transformation,
-	const algorithm::geometry::frustum::Frustum& frustum,
-	const glm::vec3&                             eye_position,
-	const glm::vec3&                             eye_path,
-	float&                                       near,
-	float&                                       far
+	const std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>& special_transformation,
+	const io::mesh::gltf::Model&                                             model,
+	uint32_t                                                                 node_idx,
+	const glm::mat4&                                                         transformation,
+	const algorithm::geometry::frustum::Frustum&                             frustum,
+	const glm::vec3&                                                         eye_position,
+	const glm::vec3&                                                         eye_path,
+	float&                                                                   near,
+	float&                                                                   far
 )
 {
 	const auto& node = model.nodes[node_idx];
-	const auto  node_trans = transformation * node.get_transformation();
+	const auto  find = special_transformation.find(node_idx);
+
+	const auto node_trans
+		= transformation * (find == special_transformation.end() ? node.transformation.get_mat4() : find->second.get_mat4());
 
 	// recursive render node
-	for (auto children_idx : node.children) render_node(model, children_idx, node_trans, frustum, eye_position, eye_path, near, far);
+	for (auto children_idx : node.children)
+		render_node(special_transformation, model, children_idx, node_trans, frustum, eye_position, eye_path, near, far);
 
 	// ignore nodes without a mesh
-	if (node.mesh_idx >= model.meshes.size()) return;
+	if (!node.has_mesh()) return;
 
 	const auto& mesh_idx = model.meshes[node.mesh_idx];
 
@@ -28,7 +33,7 @@ void Model_renderer::render_node(
 		const auto& primitive = mesh_idx.primitives[i];
 
 		// ignore primitives without material
-		if (primitive.material_idx >= model.materials.size()) continue;
+		if (!primitive.has_material()) continue;
 
 		const auto material_idx = primitive.material_idx;
 		const auto& material     = model.materials[material_idx];
@@ -108,23 +113,24 @@ void Model_renderer::render_node(
 }
 
 Model_renderer::Draw_result Model_renderer::render_gltf(
-	const Command_buffer&                                        command_buffer,
-	const io::mesh::gltf::Model&                                 model,
-	const algorithm::geometry::frustum::Frustum&                 frustum,
-	const glm::vec3&                                             eye_position,
-	const glm::vec3&                                             eye_path,
-	const Graphics_pipeline&                                     single_pipeline,
-	const Graphics_pipeline&                                     single_pipeline_alpha,
-	const Graphics_pipeline&                                     single_pipeline_blend,
-	const Graphics_pipeline&                                     double_pipeline,
-	const Graphics_pipeline&                                     double_pipeline_alpha,
-	const Graphics_pipeline&                                     double_pipeline_blend,
-	const Pipeline_layout&                                       pipeline_layout,
-	const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
-	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_opaque,
-	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_mask,
-	const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_alpha,
-	bool                                                         sort_drawcall
+	const Command_buffer&                                                    command_buffer,
+	const io::mesh::gltf::Model&                                             model,
+	const algorithm::geometry::frustum::Frustum&                             frustum,
+	const glm::vec3&                                                         eye_position,
+	const glm::vec3&                                                         eye_path,
+	const Graphics_pipeline&                                                 single_pipeline,
+	const Graphics_pipeline&                                                 single_pipeline_alpha,
+	const Graphics_pipeline&                                                 single_pipeline_blend,
+	const Graphics_pipeline&                                                 double_pipeline,
+	const Graphics_pipeline&                                                 double_pipeline_alpha,
+	const Graphics_pipeline&                                                 double_pipeline_blend,
+	const Pipeline_layout&                                                   pipeline_layout,
+	const std::function<void(const io::mesh::gltf::Material&)>&              bind_func,
+	const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_opaque,
+	const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_mask,
+	const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_alpha,
+	const std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>& special_transformation,
+	bool                                                                     sort_drawcall
 )
 {
 	utility::Cpu_timer timer;
@@ -146,7 +152,8 @@ Model_renderer::Draw_result Model_renderer::render_gltf(
 	// recursive collect
 	for (const auto& scene : model.scenes)
 	{
-		for (auto idx : scene.nodes) render_node(model, idx, glm::mat4(1.0), frustum, eye_position, eye_path, near, far);
+		for (auto idx : scene.nodes)
+			render_node(special_transformation, model, idx, glm::mat4(1.0), frustum, eye_position, eye_path, near, far);
 	}
 
 	// sort drawcalls

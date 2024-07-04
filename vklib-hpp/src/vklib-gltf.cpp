@@ -5,14 +5,62 @@
 
 namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 {
+#pragma region "Data Parser"
+
+	namespace data_parser
+	{
+		template <>
+		std::vector<uint32_t> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
+		{
+			std::vector<uint32_t> dst;
+
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			const auto& buffer      = model.buffers[buffer_view.buffer];
+
+			const void* ptr = buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset;
+			dst.resize(accessor.count);
+
+			auto assign_data = [&](const auto* ptr)
+			{
+				std::copy(ptr, ptr + accessor.count, dst.begin());
+			};
+
+			switch (accessor.componentType)
+			{
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+			{
+				assign_data((const uint8_t*)ptr);
+				break;
+			}
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+			{
+				assign_data((const uint16_t*)ptr);
+				break;
+			}
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+			{
+				assign_data((const uint32_t*)ptr);
+				break;
+			}
+			default:
+				throw Parse_error(std::format("Data type incompatible with uint32: {}", accessor.componentType));
+			}
+
+			return dst;
+		}
+	}
+
+#pragma endregion
+
 #pragma region "Node"
 
-	glm::mat4 Node::get_transformation() const
+	glm::mat4 Node_transformation::get_mat4() const
 	{
 		return glm::translate(glm::mat4(1.0), translation) * glm::scale(glm::mat4(rotation), scale);
 	}
 
-	void Node::set_transformation(const tinygltf::Node& node)
+	void Node_transformation::set(const tinygltf::Node& node)
 	{
 		// exists full transformation matrix
 		if (node.matrix.size() == 16)
@@ -36,9 +84,20 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		if (node.translation.size() == 3) translation = glm::make_vec3(node.translation.data());
 	}
 
+	void Node::set(const tinygltf::Node& node)
+	{
+		transformation.set(node);
+
+		mesh_idx = node.mesh;
+		name     = node.name;
+
+		children.resize(node.children.size());
+		std::copy(node.children.begin(), node.children.end(), children.begin());
+	}
+
 #pragma endregion
 
-#pragma region "Gltf Model"
+#pragma region "Model"
 
 	Primitive Model::parse_primitive(
 		const tinygltf::Model&     model,
@@ -63,46 +122,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				   has_normal = find_normal != primitive.attributes.end(), has_tangent = find_tangent != primitive.attributes.end();
 
 		std::vector<uint32_t> indices;
-
-		// parse indices data
-		if (has_indices)
-		{
-			const auto& accessor    = model.accessors[primitive.indices];
-			const auto& buffer_view = model.bufferViews[accessor.bufferView];
-			const auto& buffer      = model.buffers[buffer_view.buffer];
-
-			const void* ptr = buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset;
-			indices.resize(accessor.count);
-
-			auto assign_data = [&](const auto* ptr)
-			{
-				for (auto i : Range(accessor.count))
-				{
-					indices[i] = ptr[i];
-				}
-			};
-
-			switch (accessor.componentType)
-			{
-			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE:
-			{
-				assign_data((const uint8_t*)ptr);
-				break;
-			}
-			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT:
-			{
-				assign_data((const uint16_t*)ptr);
-				break;
-			}
-			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT:
-			{
-				assign_data((const uint32_t*)ptr);
-				break;
-			}
-			default:
-				throw Exception("Unsupported Indice Type");
-			}
-		}
+		if (has_indices) indices = data_parser::acquire_accessor<uint32_t>(model, primitive.indices);
 
 		uint32_t vertex_count = has_indices ? indices.size() : model.accessors[find_position->second].count;
 
@@ -436,17 +456,11 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		nodes.reserve(model.nodes.size());
 
+		// iterates over all nodes
 		for (const auto& node : model.nodes)
 		{
 			Node output;
-
-			output.mesh_idx = node.mesh;
-			output.set_transformation(node);
-			output.name = node.name;
-
-			output.children.resize(node.children.size());
-			std::copy(node.children.begin(), node.children.end(), output.children.begin());
-
+			output.set(node);
 			nodes.push_back(output);
 		}
 	}
@@ -504,7 +518,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 			// Normal Texture
 			output_material.normal_idx = texture_views.size();
-			if (material.normalTexture.index < 0 || material.normalTexture.index >= (int)gltf_model.images.size())
+			if (material.normalTexture.index < 0 || material.normalTexture.index >= (int)gltf_model.textures.size())
 			{
 				output_material.normal_idx = texture_views.size();
 
@@ -523,7 +537,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// Albedo
 			output_material.albedo_idx = texture_views.size();
 			if (material.pbrMetallicRoughness.baseColorTexture.index < 0
-				|| material.pbrMetallicRoughness.baseColorTexture.index >= (int)gltf_model.images.size())
+				|| material.pbrMetallicRoughness.baseColorTexture.index >= (int)gltf_model.textures.size())
 			{
 				Texture tex;
 				tex.generate(
@@ -549,7 +563,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// PBR
 			output_material.metal_roughness_idx = texture_views.size();
 			if (material.pbrMetallicRoughness.metallicRoughnessTexture.index < 0
-				|| material.pbrMetallicRoughness.metallicRoughnessTexture.index >= (int)gltf_model.images.size())
+				|| material.pbrMetallicRoughness.metallicRoughnessTexture.index >= (int)gltf_model.textures.size())
 			{
 
 				Texture tex;
@@ -575,7 +589,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 			// Occlusion
 			output_material.occlusion_idx = texture_views.size();
-			if (material.occlusionTexture.index < 0 || material.occlusionTexture.index >= (int)gltf_model.images.size())
+			if (material.occlusionTexture.index < 0 || material.occlusionTexture.index >= (int)gltf_model.textures.size())
 			{
 				Texture tex;
 				tex.generate(255, 255, 255, 255, context);
@@ -594,7 +608,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 			// Emissive
 			output_material.emissive_idx = texture_views.size();
-			if (material.emissiveTexture.index < 0 || material.emissiveTexture.index >= (int)gltf_model.images.size())
+			if (material.emissiveTexture.index < 0 || material.emissiveTexture.index >= (int)gltf_model.textures.size())
 			{
 				Texture tex;
 				tex.generate(
@@ -658,6 +672,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 
 		generate_buffers(loader_context, mesh_context);
+	}
+
+	void Model::load_all_animations(const tinygltf::Model& model)
+	{
+		for (const auto& animation : model.animations)
+		{
+			Animation output;
+			output.load(model, animation);
+			animations.push_back(output);
+		}
 	}
 
 	void Model::generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context)
@@ -846,6 +870,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		// parse scenes & nodes
 		load_all_scenes(gltf_model);
 		load_all_nodes(gltf_model);
+		load_all_animations(gltf_model);
 
 		create_descriptor_pool(loader_context);
 
@@ -922,7 +947,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 #pragma endregion
 
-#pragma region "Gltf Texture"
+#pragma region "Texture"
 
 	void Texture::parse(const tinygltf::Image& tex, Loader_context& loader_context)
 	{
@@ -1184,6 +1209,86 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	Texture_view::Texture_view(
 		const Loader_context&       context,
 		const Texture&              texture,
+		const tinygltf::Sampler&    sampler,
+		const vk::ComponentMapping& components
+	)
+	{
+		view = Image_view(
+			context.device,
+			texture.image,
+			texture.format,
+			vk::ImageViewType::e2D,
+			{vk::ImageAspectFlagBits::eColor, 0, texture.mipmap_levels, 0, 1},
+			components
+		);
+
+		static const std::map<uint32_t, vk::SamplerAddressMode> wrap_mode_lut{
+			{TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE,   vk::SamplerAddressMode::eClampToEdge   },
+			{TINYGLTF_TEXTURE_WRAP_REPEAT,          vk::SamplerAddressMode::eRepeat        },
+			{TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT, vk::SamplerAddressMode::eMirroredRepeat}
+		};
+
+		auto get_wrap_mode = [=](uint32_t gltf_mode)
+		{
+			const auto find = wrap_mode_lut.find(gltf_mode);
+			if (find == wrap_mode_lut.end()) throw Gltf_parse_error(std::format("{} is not a valid wrap mode", gltf_mode));
+
+			return find->second;
+		};
+
+		static const std::map<uint32_t, std::tuple<vk::SamplerMipmapMode, vk::Filter>> min_filter_lut{
+			{TINYGLTF_TEXTURE_FILTER_LINEAR,                 {vk::SamplerMipmapMode::eLinear, vk::Filter::eLinear}  },
+			{TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR,   {vk::SamplerMipmapMode::eLinear, vk::Filter::eLinear}  },
+			{TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST,  {vk::SamplerMipmapMode::eNearest, vk::Filter::eLinear} },
+			{TINYGLTF_TEXTURE_FILTER_NEAREST,                {vk::SamplerMipmapMode::eLinear, vk::Filter::eNearest} },
+			{TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR,  {vk::SamplerMipmapMode::eLinear, vk::Filter::eNearest} },
+			{TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST, {vk::SamplerMipmapMode::eNearest, vk::Filter::eNearest}},
+		};
+
+		auto get_min = [=](uint32_t gltf_mode)
+		{
+			const auto find = min_filter_lut.find(gltf_mode);
+			if (find == min_filter_lut.end()) throw Gltf_parse_error(std::format("{} is not a valid min filter", gltf_mode));
+
+			return find->second;
+		};
+
+		static const std::map<uint32_t, vk::Filter> mag_filter_lut{
+			{TINYGLTF_TEXTURE_FILTER_LINEAR,  vk::Filter::eLinear },
+			{TINYGLTF_TEXTURE_FILTER_NEAREST, vk::Filter::eNearest}
+		};
+
+		auto get_mag = [=](uint32_t gltf_mode)
+		{
+			const auto find = mag_filter_lut.find(gltf_mode);
+			if (find == mag_filter_lut.end()) throw Gltf_parse_error(std::format("{} is not a valid mag filter", gltf_mode));
+
+			return find->second;
+		};
+
+		const auto [mipmap_mode, min_filter] = get_min(sampler.minFilter);
+		const auto mag_filter                = get_mag(sampler.magFilter);
+
+		const auto sampler_create_info = vk::SamplerCreateInfo()
+											 .setAddressModeU(get_wrap_mode(sampler.wrapS))
+											 .setAddressModeV(get_wrap_mode(sampler.wrapT))
+											 .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+											 .setMipmapMode(mipmap_mode)
+											 .setAnisotropyEnable(context.config.enable_anistropy)
+											 .setMaxAnisotropy(context.config.max_anistropy)
+											 .setCompareEnable(false)
+											 .setMinLod(0)
+											 .setMaxLod(texture.mipmap_levels)
+											 .setMinFilter(min_filter)
+											 .setMagFilter(mag_filter)
+											 .setUnnormalizedCoordinates(false);
+
+		this->sampler = Image_sampler(context.device, sampler_create_info);
+	}
+
+	Texture_view::Texture_view(
+		const Loader_context&       context,
+		const Texture&              texture,
 		const vk::ComponentMapping& components
 	)
 	{
@@ -1210,9 +1315,321 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 											 .setMagFilter(vk::Filter::eLinear)
 											 .setUnnormalizedCoordinates(false);
 
-		sampler = Image_sampler(context.device, sampler_create_info);
+		this->sampler = Image_sampler(context.device, sampler_create_info);
 	}
 
 #pragma endregion
 
+#pragma region "Animation Sampler"
+
+	template <>
+	glm::vec3 Animation_sampler<glm::vec3>::linear_interpolate(
+		const std::set<Keyframe>::const_iterator& first,
+		const std::set<Keyframe>::const_iterator& second,
+		float                                     time
+	) const
+	{
+		const auto& frame1 = *first;
+		const auto& frame2 = *second;
+
+		return glm::mix(frame1.linear, frame2.linear, (time - frame1.time) / (frame2.time - frame1.time));
+	}
+
+	template <>
+	glm::quat Animation_sampler<glm::quat>::linear_interpolate(
+		const std::set<Keyframe>::const_iterator& first,
+		const std::set<Keyframe>::const_iterator& second,
+		float                                     time
+	) const
+	{
+		const auto& frame1 = *first;
+		const auto& frame2 = *second;
+
+		return glm::slerp(frame1.linear, frame2.linear, (time - frame1.time) / (frame2.time - frame1.time));
+	}
+
+	template <>
+	glm::vec3 Animation_sampler<glm::vec3>::cubic_interpolate(
+		const std::set<Keyframe>::const_iterator& first,
+		const std::set<Keyframe>::const_iterator& second,
+		float                                     time
+	) const
+	{
+		const auto& frame1 = *first;
+		const auto& frame2 = *second;
+
+		const float tc = time, td = frame2.time - frame1.time, t = (tc - frame1.time) / td;
+		const float t_2 = t * t, t_3 = t_2 * t;
+
+		const glm::vec3 item1 = (2 * t_3 - 3 * t_2 + 1) * frame1.cubic.v, item2 = td * (t_3 - 2 * t_2 + t) * frame1.cubic.b,
+						item3 = (-2 * t_3 + 3 * t_2) * frame2.cubic.v, item4 = td * (t_3 - t_2) * frame2.cubic.a;
+
+		return item1 + item2 + item3 + item4;
+	}
+
+	template <>
+	glm::quat Animation_sampler<glm::quat>::cubic_interpolate(
+		const std::set<Keyframe>::const_iterator& first,
+		const std::set<Keyframe>::const_iterator& second,
+		float                                     time
+	) const
+	{
+		const auto& frame1 = *first;
+		const auto& frame2 = *second;
+
+		const float tc = time, td = frame2.time - frame1.time, t = (tc - frame1.time) / td;
+		const float t_2 = t * t, t_3 = t_2 * t;
+
+		const glm::quat item1 = (2 * t_3 - 3 * t_2 + 1) * frame1.cubic.v, item2 = td * (t_3 - 2 * t_2 + t) * frame1.cubic.b,
+						item3 = (-2 * t_3 + 3 * t_2) * frame2.cubic.v, item4 = td * (t_3 - t_2) * frame2.cubic.a;
+
+		return glm::normalize(item1 + item2 + item3 + item4);
+	}
+
+	template <>
+	void Animation_sampler<glm::vec3>::load(const tinygltf::Model& model, const tinygltf::AnimationSampler& sampler)
+	{
+		const static std::unordered_map<std::string, Interpolation_mode> mode_map = {
+			{"LINEAR",      Interpolation_mode::Linear      },
+			{"STEP",        Interpolation_mode::Step        },
+			{"CUBICSPLINE", Interpolation_mode::Cubic_spline}
+		};
+
+		if (auto find = mode_map.find(sampler.interpolation); find != mode_map.end())
+			mode = find->second;
+		else
+			throw Animation_parse_error(std::format("Invalid animation sampler interpolation mode: {}", sampler.interpolation));
+
+		// check accessor
+		if (sampler.input < 0 || sampler.output < 0) throw Animation_parse_error("Invalid animation sampler accessor index");
+
+		// check input accessor type
+		if (const auto& accessor = model.accessors[sampler.input];
+			accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || accessor.type != TINYGLTF_TYPE_SCALAR)
+			throw Animation_parse_error("Invalid animation sampler input type");
+
+		// check output accessor type
+		if (const auto& accessor = model.accessors[sampler.output];
+			accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || accessor.type != TINYGLTF_TYPE_VEC3)
+			throw Animation_parse_error("Invalid animation sampler output type");
+
+		const auto timestamp_list = data_parser::acquire_accessor<float>(model, sampler.input);
+		const auto value_list     = data_parser::acquire_accessor<glm::vec3>(model, sampler.output);
+
+		// check value size
+		if (auto target = (mode == Interpolation_mode::Cubic_spline) ? timestamp_list.size() * 3 : timestamp_list.size();
+			value_list.size() != target)
+			throw Animation_parse_error(
+				std::format("Invalid animation sampler data size: {} VEC3, target is {}", value_list.size(), target)
+			);
+
+		// store values
+		if (mode == Interpolation_mode::Cubic_spline)
+			// Cubic spline, 3 values per timestamp
+			for (auto i : Range(timestamp_list.size()))
+			{
+				keyframes
+					.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i * 3 + 1], value_list[i * 3], value_list[i * 3 + 2]);
+			}
+		else
+			// Not cubic spline, 1 value per timestamp
+			for (auto i : Range(timestamp_list.size()))
+			{
+				keyframes.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i]);
+			}
+	}
+
+	template <>
+	void Animation_sampler<glm::quat>::load(const tinygltf::Model& model, const tinygltf::AnimationSampler& sampler)
+	{
+		const static std::unordered_map<std::string, Interpolation_mode> mode_map = {
+			{"LINEAR",      Interpolation_mode::Linear      },
+			{"STEP",        Interpolation_mode::Step        },
+			{"CUBICSPLINE", Interpolation_mode::Cubic_spline}
+		};
+
+		if (auto find = mode_map.find(sampler.interpolation); find != mode_map.end())
+			mode = find->second;
+		else
+			throw Animation_parse_error(std::format("Invalid animation sampler interpolation mode: {}", sampler.interpolation));
+
+		// check accessor
+		if (sampler.input < 0 || sampler.output < 0) throw Animation_parse_error("Invalid animation sampler accessor index");
+
+		// check input accessor type
+		if (const auto& accessor = model.accessors[sampler.input];
+			accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || accessor.type != TINYGLTF_TYPE_SCALAR)
+			throw Animation_parse_error("Invalid animation sampler input type");
+
+		// check output accessor type
+		if (const auto& accessor = model.accessors[sampler.output];
+			accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || accessor.type != TINYGLTF_TYPE_VEC4)
+			throw Animation_parse_error("Invalid animation sampler output type");
+
+		const auto timestamp_list = data_parser::acquire_accessor<float>(model, sampler.input);
+		const auto value_list     = data_parser::acquire_normalized_accessor<glm::quat>(model, sampler.output);
+
+		// check value size
+		if (auto target = (mode == Interpolation_mode::Cubic_spline) ? timestamp_list.size() * 3 : timestamp_list.size();
+			value_list.size() != target)
+			throw Animation_parse_error(
+				std::format("Invalid animation sampler data size: {} VEC3, target is {}", value_list.size(), target)
+			);
+
+		// store values
+		if (mode == Interpolation_mode::Cubic_spline)
+			// Cubic spline, 3 values per timestamp
+			for (auto i : Range(timestamp_list.size()))
+			{
+				keyframes
+					.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i * 3 + 1], value_list[i * 3], value_list[i * 3 + 2]);
+			}
+		else
+			// Not cubic spline, 1 value per timestamp
+			for (auto i : Range(timestamp_list.size()))
+			{
+				keyframes.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i]);
+			}
+	}
+
+	std::variant<Animation_sampler<glm::vec3>, Animation_sampler<glm::quat>> load_sampler(
+		const tinygltf::Model&            model,
+		const tinygltf::AnimationSampler& sampler
+	)
+	{
+		const auto& output_accessor = model.accessors[sampler.output];
+
+		switch (output_accessor.type)
+		{
+		case TINYGLTF_TYPE_VEC3:
+		{
+			Animation_sampler<glm::vec3> dst;
+			dst.load(model, sampler);
+			return dst;
+		}
+
+		case TINYGLTF_TYPE_VEC4:
+		{
+			Animation_sampler<glm::quat> dst;
+			dst.load(model, sampler);
+			return dst;
+		}
+
+		default:
+			throw Animation_parse_error("Invalid animation sampler output accessor type");
+		}
+	}
+
+#pragma endregion
+
+#pragma region "Animation"
+
+	bool Animation_channel::load(const tinygltf::AnimationChannel& animation)
+	{
+		if (animation.target_node < 0 || animation.sampler < 0) return false;
+
+		node    = animation.target_node;
+		sampler = animation.sampler;
+
+		const static std::map<std::string, Animation_target> animation_target_lut = {
+			{"translation", Animation_target::Translation},
+			{"rotation",    Animation_target::Rotation   },
+			{"scale",       Animation_target::Scale      },
+			{"weights",     Animation_target::Weights    }
+		};
+
+		if (auto find = animation_target_lut.find(animation.target_path); find != animation_target_lut.end())
+			target = find->second;
+		else
+			throw Animation_parse_error(std::format("Invalid animation path: {}", animation.target_path));
+
+		return true;
+	}
+
+	void Animation::load(const tinygltf::Model& model, const tinygltf::Animation& animation)
+	{
+		name       = animation.name;
+		start_time = std::numeric_limits<float>::max();
+		end_time   = -std::numeric_limits<float>::max();
+
+		// parse samplers
+		for (const auto& sampler : animation.samplers) samplers.push_back(load_sampler(model, sampler));
+
+		auto get_time = [this](uint32_t idx) -> std::tuple<float, float>
+		{
+			const auto& mut = samplers[idx];
+			if (mut.index() == 0)
+			{
+				const auto& item = std::get<0>(mut);
+				return {item.start_time(), item.end_time()};
+			}
+			else
+			{
+				const auto& item = std::get<1>(mut);
+				return {item.start_time(), item.end_time()};
+			}
+		};
+
+		// parse channels
+		for (const auto& channel : animation.channels)
+		{
+			Animation_channel output;
+			if (!output.load(channel)) continue;
+
+			auto [start, end] = get_time(output.sampler);
+			start_time        = std::min(start_time, start);
+			end_time          = std::max(end_time, end);
+
+			channels.push_back(output);
+		}
+	}
+
+	void Animation::set_transformation(
+		float                                              time,
+		const std::vector<Node>&                           node_list,
+		std::unordered_map<uint32_t, Node_transformation>& map
+	) const
+	{
+		for (const auto& channel : channels)
+		{
+			const auto& sampler_variant = samplers[channel.sampler];
+
+			// check type
+			if ((sampler_variant.index() != 1 && channel.target == Animation_target::Rotation)
+				|| (sampler_variant.index() != 0 && channel.target != Animation_target::Rotation))
+			{
+				throw Animation_error("Mismatch sampler type with channel target");
+			}
+
+			// check existence
+			auto find = map.find(channel.node);
+			if (find == map.end()) find = map.emplace(channel.node, node_list[channel.node].transformation).first;
+
+			switch (channel.target)
+			{
+			case Animation_target::Translation:
+			{
+				const auto& sampler      = std::get<0>(sampler_variant);
+				find->second.translation = sampler[time];
+				break;
+			}
+			case Animation_target::Rotation:
+			{
+				const auto& sampler   = std::get<1>(sampler_variant);
+				find->second.rotation = sampler[time];
+				break;
+			}
+			case Animation_target::Scale:
+			{
+				const auto& sampler = std::get<0>(sampler_variant);
+				find->second.scale  = sampler[time];
+				break;
+			}
+			default:
+				continue;
+			}
+		}
+	}
+
+#pragma endregion
 }

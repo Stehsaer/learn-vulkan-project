@@ -3,14 +3,14 @@
 template <typename T>
 static T lerp(const T& target, const T& current, float speed, float dt)
 {
-	float mix_factor = 1 - exp(-speed * dt);
+	const float mix_factor = 1 - exp(-speed * dt);
 	return current * (1 - mix_factor) + target * mix_factor;
 }
 
 void Camera_controller::update(ImGuiIO& io)
 {
 	// Lerp
-	float dt             = io.DeltaTime;
+	const float dt       = io.DeltaTime;
 	current_pitch        = lerp(target_pitch, current_pitch, lerp_speed, dt);
 	current_eye_center   = lerp(target_eye_center, current_eye_center, lerp_speed, dt);
 	current_log_distance = lerp(target_log_distance, current_log_distance, lerp_speed, dt);

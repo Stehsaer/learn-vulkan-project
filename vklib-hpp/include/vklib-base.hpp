@@ -80,27 +80,6 @@ namespace VKLIB_HPP_NAMESPACE
 			loc(_loc)
 		{
 		}
-
-		virtual std::string info() const
-		{
-			return std::format("General Exception: {} ({} at {})", msg, loc.function_name(), crop_file_macro(loc.file_name()));
-		}
-	};
-
-	struct Invalid_argument : public Exception, public std::invalid_argument
-	{
-		Invalid_argument(const std::string& _msg, const std::source_location& _loc = std::source_location::current()) :
-			Exception(_msg, _loc),
-			std::invalid_argument(
-				std::format("Invalid Argument: {} ({} at {})", msg, _loc.function_name(), crop_file_macro(_loc.file_name()))
-			)
-		{
-		}
-
-		virtual std::string info() const
-		{
-			return std::format("Invalid Argument: {} ({} at {})", msg, loc.function_name(), crop_file_macro(loc.file_name()));
-		}
 	};
 
 	template <typename T>

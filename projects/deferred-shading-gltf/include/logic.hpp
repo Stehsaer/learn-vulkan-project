@@ -76,7 +76,6 @@ class App_render_logic : public Application_logic_base
 	/* Draw Logic */
 
 	void draw(uint32_t idx);
-	void ui_logic();
 
 	void draw_lighting(uint32_t idx, const Command_buffer& command_buffer);
 	void compute_auto_exposure(uint32_t idx, const Command_buffer& command_buffer);
@@ -85,10 +84,23 @@ class App_render_logic : public Application_logic_base
 
 	/* UI-related */
 
-	bool show_panel = true, show_control = false, show_feature = false, show_scene_explorer = false;
+	void ui_logic();
 
-	void scene_explorer();
-	void scene_explorer_node(size_t node_idx);
+	void stat_panel();
+	void control_tab();
+	void system_tab();
+	void animation_tab();
+
+	bool show_panel = true;
+
+	std::unordered_map<uint32_t, vklib_hpp::io::mesh::gltf::Node_transformation> animation_buffer;
+
+	int    selected_animation = -1;
+	bool   animation_playing = false, animation_cycle = true;
+	float  animation_time       = 0.0;
+	double animation_start_time = 0.0;
+
+	void update_animation();
 
   public:
 

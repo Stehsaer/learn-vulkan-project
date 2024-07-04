@@ -11,7 +11,7 @@ layout(set = 0, binding = 0) uniform sampler2D depth_tex;
 layout(set = 0, binding = 1) uniform sampler2D normal_tex;
 layout(set = 0, binding = 2) uniform sampler2D color_tex;
 layout(set = 0, binding = 3) uniform sampler2D pbr_tex;
-layout(set = 0, binding = 4) uniform sampler2D shadow_map[3];
+layout(set = 0, binding = 4) uniform sampler2DShadow shadow_map[3];
 layout(set = 0, binding = 5) uniform sampler2D emissive_tex;
 
 layout(std140, set = 0, binding = 6) uniform Params {
@@ -42,11 +42,26 @@ const vec3 rgb_brightness_coeff = vec3(0.21, 0.72, 0.07);
 
 const float min_log_luminance = -10, max_log_luminance = 14;
 
+vec2 poisson_disk[12] = vec2[](
+	vec2(-.326,-.406),
+	vec2(-.840,-.074),
+	vec2(-.696, .457),
+	vec2(-.203, .621),
+	vec2( .962,-.195),
+	vec2( .473,-.480),
+	vec2( .519, .767),
+	vec2( .185,-.893),
+	vec2( .507, .064),
+	vec2( .896, .412),
+	vec2(-.322,-.933),
+	vec2(-.792,-.598)
+);
+
 float sample_shadowmap(in int index, in vec2 uv, in float depth)
 {
-	float sampled_depth = texture(shadow_map[index], uv).r;
-	float is_shadow = step(depth, sampled_depth);
-	return is_shadow;
+	float sampled_depth = texture(shadow_map[index], vec3(uv, depth)).r;
+	//float is_shadow = step(depth, sampled_depth);
+	return sampled_depth;
 }
 
 vec2 rotate(in vec2 v, in float theta)
@@ -54,6 +69,16 @@ vec2 rotate(in vec2 v, in float theta)
 	return mat2(vec2(cos(theta), sin(theta)), vec2(-sin(theta), cos(theta))) * v;
 }
 
+float random(in vec2 co)
+{
+    // Hashing function to generate a pseudo-random number based on a 2D coordinate
+    float a = 12.9898;
+    float b = 78.233;
+    float c = 43758.5453;
+    float dt= dot(co.xy, vec2(a,b));
+    float sn= mod(dt,3.14);
+    return fract(sin(sn) * c);
+}
 
 float get_shadow(in vec3 position)
 {
@@ -75,16 +100,16 @@ float get_shadow(in vec3 position)
 	vec2 shadow_uv = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
 	float depth = shadow_coord.z;
 
-	float rotate_offset = fract(sin(gl_FragCoord.x * 5 + gl_FragCoord.y * 13) * 30) * PI * 2;
+	float rotate_offset = random(gl_FragCoord.xy) * PI * 2;
 	vec2 sample_delta = params.shadow_sizes[index].xy;
 
 	float shadow_accumulate = sample_shadowmap(index, shadow_uv, depth);
 	int num = 1;
 
 #pragma unroll_loop_start
-	for(int i = 0; i < 8; i++)
+	for(int i = 0; i < 12; i++)
 	{
-		vec2 uv = shadow_uv + rotate(sample_delta, rotate_offset + i * PI / 4.0) / (i % 2 + 1);
+		vec2 uv = shadow_uv + rotate(poisson_disk[i] * sample_delta, rotate_offset + i * PI / 6.0);
 		if(uv.x > 1.0 || uv.x < 0.0 || uv.y > 1.0 || uv.y < 0.0) continue;
 
 		shadow_accumulate += sample_shadowmap(index, uv, depth);
@@ -92,7 +117,7 @@ float get_shadow(in vec3 position)
 	}
 #pragma unroll_loop_end
 
-	return shadow_accumulate / num;
+	return min(shadow_accumulate / num * 1.5, 1.0);
 }
 
 void main()

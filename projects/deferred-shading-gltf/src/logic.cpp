@@ -425,6 +425,7 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			bind_vertex_opaque,
 			bind_vertex,
 			bind_vertex,
+			animation_buffer,
 			true
 		);
 
@@ -539,6 +540,7 @@ void App_render_logic::gbuffer_thread_work()
 				bind_vertex,
 				bind_vertex,
 				bind_vertex,
+				animation_buffer,
 				true
 			);
 
@@ -585,6 +587,7 @@ void App_render_logic::post_thread_work()
 	// draw loop
 	while (true)
 	{
+		update_animation();
 		frame_start_semaphore.acquire();
 
 		if (multi_thread_stop) return;
@@ -1073,226 +1076,285 @@ void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& comman
 	core->env.debug_marker.end_region(command_buffer);
 }
 
+void App_render_logic::stat_panel()
+{
+	const auto& swapchain = core->env.swapchain;
+
+	const float framerate = ImGui::GetIO().Framerate;
+	const float dt        = ImGui::GetIO().DeltaTime;
+	ImGui::SetNextWindowPos({20, (float)swapchain.extent.height - 20}, ImGuiCond_Always, {0, 1});
+	ImGui::Begin(
+		"Status Display Window",
+		nullptr,
+		ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize
+	);
+	{
+		ImGui::Text("Objects: G=%d/S=%d", gbuffer_object_count.load(), shadow_object_count.load());
+		ImGui::Text("Tris: G=%d/S=%d", gbuffer_vertex_count / 3, shadow_vertex_count / 3);
+		ImGui::Text("FPS: %.1f", framerate);
+		ImGui::Text("DT: %.1fms", dt * 1000);
+		ImGui::Text("CPU Time: %.0fus", (gbuffer_cpu_time + shadow_cpu_time) * 1000);
+	}
+	ImGui::End();
+}
+
+void App_render_logic::control_tab()
+{
+	auto& params = core->params;
+
+	ImGui::SeparatorText("Lighting");
+	{
+		ImGui::ColorEdit3("Light Color", &params.light_color.x, ImGuiColorEditFlags_DisplayHSV);
+		ImGui::SliderFloat(
+			"Light Intensity",
+			&params.light_intensity,
+			0.0,
+			10000.0,
+			"%.3f nits",
+			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+		);
+		ImGui::SliderFloat("Light Height", &params.sunlight_pitch, 0, 90, "%.1fdeg");
+		ImGui::SliderFloat("Light Direction", &params.sunlight_yaw, 0, 360, "%.1fdeg");
+
+		ImGui::SliderFloat("Exposure", &params.exposure_ev, -6, 6, "%.1fEV");
+
+		ImGui::SliderFloat(
+			"Emissive Brightness",
+			&params.emissive_brightness,
+			0.001,
+			10000,
+			"%.3f nits",
+			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+		);
+
+		ImGui::SliderFloat(
+			"Skybox Brightness",
+			&params.skybox_brightness,
+			0.001,
+			10000,
+			"%.3f nits",
+			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+		);
+
+		ImGui::SliderFloat(
+			"Bloom Intensity",
+			&params.bloom_intensity,
+			0.001,
+			10,
+			"%.3fx",
+			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+		);
+
+		ImGui::SliderFloat(
+			"Bloom Start",
+			&params.bloom_start,
+			0.2,
+			params.bloom_end,
+			"%.2fx",
+			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+		);
+
+		ImGui::SliderFloat(
+			"Bloom End",
+			&params.bloom_end,
+			params.bloom_start,
+			100,
+			"%.2fx",
+			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+		);
+
+		ImGui::SliderFloat("Adapt Speed", &params.adapt_speed, 0.01, 5, "%.2fx");
+	}
+
+	ImGui::SeparatorText("Camera");
+	{
+		ImGui::SliderFloat("FOV", &params.fov, 1, 135, "%.1fdeg");
+		{
+			ImGui::BeginDisabled(params.auto_adjust_far_plane);
+			ImGui::SliderFloat("Far", &params.far, 1, 10000, "%.2f", ImGuiSliderFlags_Logarithmic);
+			ImGui::EndDisabled();
+		}
+		{
+			ImGui::BeginDisabled(params.auto_adjust_near_plane);
+			ImGui::SliderFloat("Near", &params.near, 0.01, params.far, "%.2f", ImGuiSliderFlags_Logarithmic);
+			ImGui::EndDisabled();
+		}
+		ImGui::Checkbox("Auto Adjust Far Plane", &params.auto_adjust_far_plane);
+		ImGui::Checkbox("Auto Adjust Near Plane", &params.auto_adjust_near_plane);
+		ImGui::SliderFloat("CSM Blend Factor", &params.csm_blend_factor, 0, 1);
+	}
+
+	ImGui::SeparatorText("Debug");
+	{
+		ImGui::Checkbox("Visualize Shadow Perspective", &params.show_shadow_perspective);
+		ImGui::BeginDisabled(!params.show_shadow_perspective);
+		{
+			ImGui::InputInt("Shadow Layer", &params.shadow_perspective_layer);
+			params.shadow_perspective_layer = std::clamp<int>(params.shadow_perspective_layer, 0, 2);
+		}
+		ImGui::EndDisabled();
+	}
+}
+
+void App_render_logic::system_tab()
+{
+	ImGui::Checkbox("Stats Panel", &show_panel);
+
+	// Feature
+	{
+		ImGui::SeparatorText("Features");
+
+		auto display_enable_status = [](const char* prefix, bool enabled)
+		{
+			ImGui::BulletText("%s: ", prefix);
+			ImGui::SameLine();
+
+			if (enabled)
+				ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Enabled");
+			else
+				ImGui::TextColored({1.0, 0.3, 0.0, 1.0}, "Disabled");
+		};
+
+		display_enable_status("10-bit Output", core->env.swapchain.feature.color_depth_10_enabled);
+		display_enable_status("HDR Output", core->env.swapchain.feature.hdr_enabled);
+	}
+}
+
 void App_render_logic::ui_logic()
 {
-	auto& params    = core->params;
-	auto& swapchain = core->env.swapchain;
+	auto&       params    = core->params;
+	const auto& swapchain = core->env.swapchain;
 
 	params.camera_controller.update(ImGui::GetIO());
 
-	// Main Control
+	ImGui::SetNextWindowPos({20, 20}, ImGuiCond_Always, {0, 0});
+	ImGui::SetNextWindowSizeConstraints({0.0f, 0.0f}, {-1.0f, swapchain.extent.height - 200.0f});
+	if (ImGui::Begin(
+			"##Main Control Window",
+			NULL,
+			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize
+		))
 	{
-		ImGui::SetNextWindowPos({20, 20}, ImGuiCond_Always, {0, 0});
-		ImGui::Begin("Main Control Window", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
+		if (ImGui::BeginTabBar("##Main Tab"))
 		{
-			ImGui::Checkbox("Control", &show_control);
-			ImGui::Checkbox("Statistics", &show_panel);
-			ImGui::Checkbox("Feature List", &show_feature);
-			ImGui::Checkbox("Scene Explorer", &show_scene_explorer);
+			if (ImGui::BeginTabItem("System"))
+			{
+				system_tab();
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Control"))
+			{
+				control_tab();
+				ImGui::EndTabItem();
+			}
+
+			if (!core->source.model->animations.empty())
+				if (ImGui::BeginTabItem("Animation"))
+				{
+					animation_tab();
+					ImGui::EndTabItem();
+				}
+
+			ImGui::EndTabBar();
 		}
-		ImGui::End();
 	}
+	ImGui::End();
 
 	// Status Display
-	if (show_panel)
-	{
-		const float framerate = ImGui::GetIO().Framerate;
-		const float dt        = ImGui::GetIO().DeltaTime;
-		ImGui::SetNextWindowPos({20, (float)swapchain.extent.height - 20}, ImGuiCond_Always, {0, 1});
-		ImGui::Begin(
-			"Status Display Window",
-			nullptr,
-			ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize
-		);
-		{
-			ImGui::Text("Objects: G=%d/S=%d", gbuffer_object_count.load(), shadow_object_count.load());
-			ImGui::Text("Tris: G=%d/S=%d", gbuffer_vertex_count / 3, shadow_vertex_count / 3);
-			ImGui::Text("FPS: %.1f", framerate);
-			ImGui::Text("DT: %.1fms", dt * 1000);
-			ImGui::Text("CPU Time: %.0fus", (gbuffer_cpu_time + shadow_cpu_time) * 1000);
-		}
-		ImGui::End();
-	}
-
-	// Control
-	if (show_control)
-	{
-		if (ImGui::Begin("Control", &show_control, ImGuiWindowFlags_NoCollapse))
-		{
-			ImGui::SeparatorText("Lighting");
-			{
-				ImGui::ColorEdit3("Light Color", &params.light_color.x, ImGuiColorEditFlags_DisplayHSV);
-				ImGui::SliderFloat(
-					"Light Intensity",
-					&params.light_intensity,
-					0.0,
-					10000.0,
-					"%.3f nits",
-					ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-				);
-				ImGui::SliderFloat("Light Height", &params.sunlight_pitch, 0, 90, "%.1fdeg");
-				ImGui::SliderFloat("Light Direction", &params.sunlight_yaw, 0, 360, "%.1fdeg");
-
-				ImGui::SliderFloat("Exposure", &params.exposure_ev, -6, 6, "%.1fEV");
-
-				ImGui::SliderFloat(
-					"Emissive Brightness",
-					&params.emissive_brightness,
-					0.001,
-					10000,
-					"%.3f nits",
-					ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-				);
-
-				ImGui::SliderFloat(
-					"Skybox Brightness",
-					&params.skybox_brightness,
-					0.001,
-					10000,
-					"%.3f nits",
-					ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-				);
-
-				ImGui::SliderFloat(
-					"Bloom Intensity",
-					&params.bloom_intensity,
-					0.001,
-					10,
-					"%.3fx",
-					ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-				);
-
-				ImGui::SliderFloat(
-					"Bloom Start",
-					&params.bloom_start,
-					0.2,
-					params.bloom_end,
-					"%.2fx",
-					ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-				);
-
-				ImGui::SliderFloat(
-					"Bloom End",
-					&params.bloom_end,
-					params.bloom_start,
-					100,
-					"%.2fx",
-					ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-				);
-
-				ImGui::SliderFloat("Adapt Speed", &params.adapt_speed, 0.01, 5, "%.2fx");
-			}
-
-			ImGui::SeparatorText("Camera");
-			{
-				ImGui::SliderFloat("FOV", &params.fov, 1, 135, "%.1fdeg");
-				{
-					ImGui::BeginDisabled(params.auto_adjust_far_plane);
-					ImGui::SliderFloat("Far", &params.far, 1, 10000, "%.2f", ImGuiSliderFlags_Logarithmic);
-					ImGui::EndDisabled();
-				}
-				{
-					ImGui::BeginDisabled(params.auto_adjust_near_plane);
-					ImGui::SliderFloat("Near", &params.near, 0.01, params.far, "%.2f", ImGuiSliderFlags_Logarithmic);
-					ImGui::EndDisabled();
-				}
-				ImGui::Checkbox("Auto Adjust Far Plane", &params.auto_adjust_far_plane);
-				ImGui::Checkbox("Auto Adjust Near Plane", &params.auto_adjust_near_plane);
-				ImGui::SliderFloat("CSM Blend Factor", &params.csm_blend_factor, 0, 1);
-			}
-
-			ImGui::SeparatorText("Debug");
-			{
-				ImGui::Checkbox("Visualize Shadow Perspective", &params.show_shadow_perspective);
-				ImGui::BeginDisabled(!params.show_shadow_perspective);
-				{
-					ImGui::InputInt("Shadow Layer", &params.shadow_perspective_layer);
-					params.shadow_perspective_layer = std::clamp<int>(params.shadow_perspective_layer, 0, 2);
-				}
-				ImGui::EndDisabled();
-			}
-		}
-		ImGui::End();
-	}
-
-	// Feature list
-	if (show_feature)
-	{
-		if (ImGui::Begin("Feature List", &show_feature, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize))
-		{
-			auto display_enable_status = [](const char* prefix, bool enabled)
-			{
-				ImGui::BulletText("%s: ", prefix);
-				ImGui::SameLine();
-
-				if (enabled)
-					ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Enabled");
-				else
-					ImGui::TextColored({1.0, 0.3, 0.0, 1.0}, "Disabled");
-			};
-
-			display_enable_status("10-bit Output", core->env.swapchain.feature.color_depth_10_enabled);
-			display_enable_status("HDR Output", core->env.swapchain.feature.hdr_enabled);
-		}
-		ImGui::End();
-	}
-
-	if (show_scene_explorer)
-	{
-		if (ImGui::Begin("Scene Explorer", &show_scene_explorer, ImGuiWindowFlags_NoCollapse)) scene_explorer();
-		ImGui::End();
-	}
+	if (show_panel) stat_panel();
 
 	ImGui::Render();
 }
 
-void App_render_logic::scene_explorer_node(size_t node_idx)
+void App_render_logic::update_animation()
 {
-	const auto& node = core->source.model->nodes[node_idx];
+	if (selected_animation < 0) return;
 
-	const auto tree_node_name = std::format("[Node {1}] {0}##node_{1}", node.name, node_idx);
+	const auto&  model     = *core->source.model;
+	const auto&  animation = model.animations[selected_animation];
+	const double now       = ImGui::GetTime();
 
-	if (ImGui::TreeNode(tree_node_name.c_str()))
+	// assign animation time
+	if (animation_playing)
 	{
-		if (node.mesh_idx < core->source.model->meshes.size())
-			ImGui::BulletText("Mesh: [Mesh %d] %s", node.mesh_idx, core->source.model->meshes[node.mesh_idx].name.c_str());
+		animation_time = now - animation_start_time;
 
-		ImGui::BulletText("Scale: [%.3f, %.3f, %.3f]", node.scale.x, node.scale.y, node.scale.z);
-		ImGui::BulletText("Translation: [%.3f, %.3f, %.3f]", node.translation.x, node.translation.y, node.translation.z);
-		ImGui::BulletText("Rotation: [%.3f, %.3f, %.3f, %.3f]", node.rotation.x, node.rotation.y, node.rotation.z, node.rotation.w);
-
-		for (auto child_node : node.children) scene_explorer_node(child_node);
-
-		ImGui::TreePop();
-	}
-}
-
-void App_render_logic::scene_explorer()
-{
-	const auto& model = *core->source.model;
-
-	ImGui::BeginTabBar("Tabs");
-
-	// Scene & Nodes
-	ImGui::BeginTabItem("Scenes");
-
-	// Iterate over all scenes
-	for (auto i : Range(model.scenes.size()))
-	{
-		const auto& scene = model.scenes[i];
-
-		// Iterate over all child nodes
-		const auto header_name = std::format("[Scene {1}] {0}##scene_{1}", scene.name, i);
-
-		if (ImGui::CollapsingHeader(header_name.c_str()))
+		if (animation_time > animation.end_time)
 		{
-			for (auto node_idx : scene.nodes) scene_explorer_node(node_idx);
+			if (animation_cycle)
+				animation_start_time = now;
+			else
+				animation_playing = false;
 		}
 	}
 
-	ImGui::EndTabItem();
+	animation.set_transformation(animation_time, model.nodes, animation_buffer);
+}
 
-	ImGui::EndTabBar();
+void App_render_logic::animation_tab()
+{
+	const auto&       model   = *core->source.model;
+	const std::string preview = selected_animation == -1
+								  ? "Disabled"
+								  : std::format("[{}] {}", selected_animation, model.animations[selected_animation].name);
+
+	if (ImGui::BeginCombo("Animation", preview.c_str()))
+	{
+		// Disable option
+		if (ImGui::Selectable("Disabled", selected_animation == -1))
+		{
+			selected_animation = -1;
+			animation_playing  = false;
+			animation_buffer.clear();
+		}
+
+		// Iterate over all animations
+		for (auto i : Range<int>(model.animations.size()))
+		{
+			const auto& animation = model.animations[i];
+
+			const bool selected = ImGui::Selectable(std::format("[{}] {}", i, animation.name).c_str(), selected_animation == i);
+
+			if (selected)
+			{
+				selected_animation = i;
+				animation_playing  = false;
+				animation_buffer.clear();
+			}
+		}
+
+		ImGui::EndCombo();
+	}
+
+	if (selected_animation < 0) return;
+
+	const auto& animation = model.animations[selected_animation];
+
+	ImGui::BulletText("Start Time: %.2fs", animation.start_time);
+	ImGui::BulletText("End Time: %.2fs", animation.end_time);
+
+	ImGui::BeginDisabled(animation_playing);
+	{
+		ImGui::SliderFloat("Time", &animation_time, std::min(0.0f, animation.start_time), animation.end_time, "%.3fs");
+	}
+	ImGui::EndDisabled();
+
+	ImGui::Checkbox("Cycle Animation", &animation_cycle);
+
+	const double now = ImGui::GetTime();
+
+	// Start/stop button
+	if (ImGui::Button(animation_playing ? "Stop" : "Play"))
+	{
+		if (animation_playing)
+			animation_playing = false;
+		else
+		{
+			animation_playing    = true;
+			animation_start_time = now - animation_time;
+		}
+	}
 }
 
 #pragma endregion
@@ -1419,7 +1481,7 @@ void App_load_model_logic::ui_logic()
 		))
 	{
 		const char* display_msg      = "";
-		const float display_progress = ((int)load_stage - 1 + sub_progress) / 3.0f;
+		float       display_progress = sub_progress;
 
 		switch (load_stage)
 		{
@@ -1427,6 +1489,7 @@ void App_load_model_logic::ui_logic()
 			break;
 		case vklib_hpp::io::mesh::gltf::Load_stage::Tinygltf_loading:
 			display_msg = "TinyGltf Loading Data";
+			display_progress = -1;
 			break;
 		case vklib_hpp::io::mesh::gltf::Load_stage::Load_material:
 			display_msg = "Loading Material";
@@ -1455,7 +1518,10 @@ void App_load_model_logic::ui_logic()
 		else
 		{
 			// Show Progress bar
-			ImGui::ProgressBar(display_progress, ImVec2(core->env.swapchain.extent.width / 3.0f, 0));
+			if (display_progress >= 0)
+				ImGui::ProgressBar(display_progress, ImVec2(core->env.swapchain.extent.width / 3.0f, 0));
+			else
+				ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(), ImVec2(core->env.swapchain.extent.width / 3.0f, 0));
 		}
 	}
 	ImGui::End();

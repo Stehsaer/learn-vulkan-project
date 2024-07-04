@@ -75,4 +75,61 @@ namespace VKLIB_HPP_NAMESPACE::utility
 
 		return ret;
 	}
+
+	namespace glm_type_check
+	{
+		template <typename T, typename Base, glm::qualifier Q, size_t L>
+		consteval bool check_glm_vec_recursive()
+		{
+			if constexpr (L > 0)
+			{
+				if (std::is_same_v<glm::vec<L, Base, Q>, T>)
+					return true;
+				else
+					return check_glm_vec_recursive<T, Base, Q, L - 1>();
+			}
+			else
+				return false;
+		}
+
+		template <typename T, typename Base, glm::qualifier Q, size_t W, size_t H>
+		consteval bool check_glm_mat_vertical()
+		{
+			if constexpr (H > 0)
+			{
+				if (std::is_same_v<glm::mat<W, H, Base, Q>, T>)
+					return true;
+				else
+					return check_glm_mat_vertical<T, Base, Q, W, H - 1>();
+			}
+			else
+				return false;
+		}
+
+		template <typename T, typename Base, glm::qualifier Q, size_t W>
+		consteval bool check_glm_mat_horizonal()
+		{
+			if constexpr (W > 0)
+			{
+				if (check_glm_mat_vertical<T, Base, Q, W, 4>())
+					return true;
+				else
+					return check_glm_mat_horizonal<T, Base, Q, W - 1>();
+			}
+			else
+				return false;
+		}
+
+		// checks if the given type `T` is made up of type `Base`
+		template <typename T, typename Base, glm::qualifier Q = glm::defaultp>
+		consteval bool check_glm_type()
+		{
+			bool is_vec  = check_glm_vec_recursive<T, Base, Q, 4>();
+			bool is_mat  = check_glm_mat_horizonal<T, Base, Q, 4>();
+			bool is_quat = std::is_same_v<T, glm::qua<Base, Q>>;
+			bool is_same = std::is_same_v<T, Base>;
+
+			return is_vec || is_mat || is_quat || is_same;
+		}
+	}
 }

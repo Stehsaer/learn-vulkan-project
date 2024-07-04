@@ -65,11 +65,11 @@ int main(int argc [[maybe_unused]], char** argv [[maybe_unused]])
 	}
 	catch (const Exception& err)
 	{
-		std::cerr << err.info() << '\n';
+		std::cerr << "Error: " << err.msg << '\n';
 
 		show_error_msgbox(
-			"General Error",
-			std::format("General Error caught:\n[Line {} at {}]\n{}", err.loc.line(), cut_filename(err.loc.file_name()), err.msg),
+			"Error",
+			std::format("Error caught:\n[Line {} at {}]\n{}", err.loc.line(), cut_filename(err.loc.file_name()), err.msg),
 			shared_resource
 		);
 	}

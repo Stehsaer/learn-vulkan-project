@@ -225,7 +225,7 @@ void Lighting_rt::create(const Environment& env, const Render_pass& render_pass,
 		.setMaxLod(1.0)
 		.setMinLod(0.0)
 		// Hardware PCF
-		.setCompareEnable(false)
+		.setCompareEnable(true)
 		.setCompareOp(vk::CompareOp::eLessOrEqual)
 		.setAnisotropyEnable(false)
 		.setMaxAnisotropy(1.0)

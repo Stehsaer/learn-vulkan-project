@@ -32,34 +32,36 @@ class Model_renderer
 	};
 
 	Draw_result render_gltf(
-		const Command_buffer&                                        command_buffer,
-		const io::mesh::gltf::Model&                                 model,
-		const algorithm::geometry::frustum::Frustum&                 frustum,
-		const glm::vec3&                                             eye_position,
-		const glm::vec3&                                             eye_path,
-		const Graphics_pipeline&                                     single_pipeline,
-		const Graphics_pipeline&                                     single_pipeline_alpha,
-		const Graphics_pipeline&                                     single_pipeline_blend,
-		const Graphics_pipeline&                                     double_pipeline,
-		const Graphics_pipeline&                                     double_pipeline_alpha,
-		const Graphics_pipeline&                                     double_pipeline_blend,
-		const Pipeline_layout&                                       pipeline_layout,
-		const std::function<void(const io::mesh::gltf::Material&)>&  bind_func,
-		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_opaque,
-		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_mask,
-		const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func_alpha,
-		bool                                                         sort_drawcall
+		const Command_buffer&                                                    command_buffer,
+		const io::mesh::gltf::Model&                                             model,
+		const algorithm::geometry::frustum::Frustum&                             frustum,
+		const glm::vec3&                                                         eye_position,
+		const glm::vec3&                                                         eye_path,
+		const Graphics_pipeline&                                                 single_pipeline,
+		const Graphics_pipeline&                                                 single_pipeline_alpha,
+		const Graphics_pipeline&                                                 single_pipeline_blend,
+		const Graphics_pipeline&                                                 double_pipeline,
+		const Graphics_pipeline&                                                 double_pipeline_alpha,
+		const Graphics_pipeline&                                                 double_pipeline_blend,
+		const Pipeline_layout&                                                   pipeline_layout,
+		const std::function<void(const io::mesh::gltf::Material&)>&              bind_func,
+		const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_opaque,
+		const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_mask,
+		const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_alpha,
+		const std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>& special_transformation,
+		bool                                                                     sort_drawcall
 	);
 
 	void render_node(
-		const io::mesh::gltf::Model&                 model,
-		uint32_t                                     idx,
-		const glm::mat4&                             transformation,
-		const algorithm::geometry::frustum::Frustum& frustum,
-		const glm::vec3&                             eye_position,
-		const glm::vec3&                             eye_path,
-		float&                                       near,
-		float&                                       far
+		const std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>& special_transformation,
+		const io::mesh::gltf::Model&                                             model,
+		uint32_t                                                                 idx,
+		const glm::mat4&                                                         transformation,
+		const algorithm::geometry::frustum::Frustum&                             frustum,
+		const glm::vec3&                                                         eye_position,
+		const glm::vec3&                                                         eye_path,
+		float&                                                                   near,
+		float&                                                                   far
 	);
 
 	uint32_t get_object_count() const

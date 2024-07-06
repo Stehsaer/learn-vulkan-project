@@ -1,41 +1,126 @@
 #include "model-renderer.hpp"
 
-void Model_renderer::render_node(
-	const std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>& special_transformation,
-	const io::mesh::gltf::Model&                                             model,
-	uint32_t                                                                 node_idx,
-	const glm::mat4&                                                         transformation,
-	const algorithm::geometry::frustum::Frustum&                             frustum,
-	const glm::vec3&                                                         eye_position,
-	const glm::vec3&                                                         eye_path,
-	float&                                                                   near,
-	float&                                                                   far
+void Drawlist::emplace(const Drawcall& drawcall, io::mesh::gltf::Alpha_mode mode)
+{
+	switch (mode)
+	{
+	case io::mesh::gltf::Alpha_mode::Opaque:
+		opaque.emplace_back(drawcall);
+		break;
+	case io::mesh::gltf::Alpha_mode::Mask:
+		mask.emplace_back(drawcall);
+		break;
+	case io::mesh::gltf::Alpha_mode::Blend:
+		blend.emplace_back(drawcall);
+		break;
+	}
+}
+
+void Drawlist::draw(const Draw_params& params) const
+{
+	auto draw = [&](const std::vector<Drawcall>&                draw_list,
+					const Graphics_pipeline&                    pipeline,
+					const std::function<void(const Drawcall&)>& bind_vertex_func)
+	{
+		if (draw_list.empty()) return;
+
+		params.command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+
+		uint32_t prev_node = -1, prev_vertex_buffer = -1, prev_offset = -1, prev_material = -1;
+
+		for (const auto& drawcall : draw_list)
+		{
+			if (prev_node != drawcall.node_idx)
+			{
+				auto push_constants = Gbuffer_pipeline::Model_matrix(drawcall.transformation);
+				params.command_buffer.push_constants(params.pipeline_layout, vk::ShaderStageFlagBits::eVertex, push_constants);
+				prev_node = drawcall.node_idx;
+			}
+
+			if (drawcall.primitive.material_idx != prev_material)
+			{
+				params.bind_material_func(drawcall);
+				prev_material = drawcall.primitive.material_idx;
+			}
+
+			if (drawcall.primitive.position_buffer != prev_vertex_buffer || drawcall.primitive.position_offset != prev_offset)
+			{
+				bind_vertex_func(drawcall);
+				prev_vertex_buffer = drawcall.primitive.position_buffer;
+				prev_offset        = drawcall.primitive.position_offset;
+			}
+
+			params.command_buffer.draw(0, drawcall.primitive.vertex_count, 0, 1);
+		}
+	};
+
+	draw(opaque, params.opaque_pipeline, params.bind_vertex_func_opaque);
+
+	draw(mask, params.mask_pipeline, params.bind_vertex_func_mask);
+
+	draw(blend, params.blend_pipeline, params.bind_vertex_func_blend);
+}
+
+Drawcall_generator::Gen_result Drawcall_generator::generate(const Gen_params& params)
+{
+	// check input params
+	if (params.model == nullptr) throw Invalid_argument("Invalid input argument: params.model", "params.model", "not nullptr");
+
+	if (params.node_trans_lut == nullptr)
+		throw Invalid_argument("Invalid input argument: params.model", "params.node_trans_lut", "not nullptr");
+
+	if (params.scene_idx >= params.model->scenes.size())
+		throw Invalid_argument(
+			"Invalid argument: params.scene_idx exceeds scene count",
+			"params.scene_idx",
+			"smaller than scene count"
+		);
+
+	// initialize buffers
+	single_sided.clear();
+	double_sided.clear();
+	node_trans_cache.resize(params.model->nodes.size());
+
+	Gen_result result;
+
+	for (auto idx : params.model->scenes[params.scene_idx].nodes) result += generate_node(params, idx, params.base_transformation);
+
+	single_sided.sort();
+	double_sided.sort();
+
+	return result;
+}
+
+Drawcall_generator::Gen_result Drawcall_generator::generate_node(
+	const Gen_params& params,
+	uint32_t          node_idx,
+	const glm::mat4&  transformation
 )
 {
-	const auto& node = model.nodes[node_idx];
-	const auto  find = special_transformation.find(node_idx);
+	Gen_result result;
+
+	const auto& model = *params.model;
+	const auto& node  = model.nodes[node_idx];
+	const auto  find  = params.node_trans_lut->find(node_idx);
 
 	const auto node_trans
-		= transformation * (find == special_transformation.end() ? node.transformation.get_mat4() : find->second.get_mat4());
+		= transformation * (find == params.node_trans_lut->end() ? node.transformation.get_mat4() : find->second.get_mat4());
+	node_trans_cache[node_idx] = node_trans;
 
 	// recursive render node
-	for (auto children_idx : node.children)
-		render_node(special_transformation, model, children_idx, node_trans, frustum, eye_position, eye_path, near, far);
+	for (auto children_idx : node.children) result += generate_node(params, children_idx, node_trans);
 
 	// ignore nodes without a mesh
-	if (!node.has_mesh()) return;
+	if (!node.has_mesh()) return result;
 
-	const auto& mesh_idx = model.meshes[node.mesh_idx];
+	const auto& mesh = model.meshes[node.mesh_idx];
 
-	// iterates over all primitives
-	for (auto i : Range(mesh_idx.primitives.size()))
+	for (const auto& primitive : mesh.primitives)
 	{
-		const auto& primitive = mesh_idx.primitives[i];
-
 		// ignore primitives without material
 		if (!primitive.has_material()) continue;
 
-		const auto material_idx = primitive.material_idx;
+		const auto  material_idx = primitive.material_idx;
 		const auto& material     = model.materials[material_idx];
 
 		const auto &min = primitive.min, &max = primitive.max;
@@ -57,172 +142,34 @@ void Model_renderer::render_node(
 		const auto bounding_box = algorithm::geometry::frustum::AABB::from_min_max(min_coord, max_coord);
 
 		const auto edge_bounded
-			= bounding_box.intersect_or_forward(frustum.bottom) && bounding_box.intersect_or_forward(frustum.top)
-		   && bounding_box.intersect_or_forward(frustum.left) && bounding_box.intersect_or_forward(frustum.right);
+			= bounding_box.intersect_or_forward(params.frustum.bottom) && bounding_box.intersect_or_forward(params.frustum.top)
+		   && bounding_box.intersect_or_forward(params.frustum.left) && bounding_box.intersect_or_forward(params.frustum.right);
 
 		// Calculate far & near plane
+
+		float near = std::numeric_limits<float>::max(), far = -near;
 
 		if (edge_bounded)
 			for (const auto& pt : edge_points)
 			{
-				far  = std::max(far, glm::dot(eye_path, pt - eye_position));
-				near = std::min(near, glm::dot(eye_path, pt - eye_position));
+				far  = std::max(far, glm::dot(params.eye_path, pt - params.eye_position));
+				near = std::min(near, glm::dot(params.eye_path, pt - params.eye_position));
 			}
 
-		if (!edge_bounded || !bounding_box.intersect_or_forward(frustum.far)
-			|| !bounding_box.intersect_or_forward(frustum.near))
+		result.near = std::min(near, result.near);
+		result.far  = std::max(far, result.far);
+
+		if (!edge_bounded || !bounding_box.intersect_or_forward(params.frustum.far)
+			|| !bounding_box.intersect_or_forward(params.frustum.near))
 			continue;
 
-		const Renderer_drawcall drawcall{node_idx, primitive, node_trans};
+		result.object_count++;
+		result.vertex_count += primitive.vertex_count;
 
-		if (material.double_sided)
-		{
-			using namespace vklib_hpp::io::mesh::gltf;
+		const Drawcall drawcall{node_idx, primitive, node_trans, near, far};
 
-			switch (material.alpha_mode)
-			{
-			case Alpha_mode::Opaque:
-				double_sided.emplace_back(drawcall);
-				break;
-			case Alpha_mode::Mask:
-				double_sided_alpha.emplace_back(drawcall);
-				break;
-			case Alpha_mode::Blend:
-				double_sided_blend.emplace_back(drawcall);
-				break;
-			}
-		}
-		else
-		{
-			using namespace vklib_hpp::io::mesh::gltf;
-
-			switch (material.alpha_mode)
-			{
-			case Alpha_mode::Opaque:
-				single_sided.emplace_back(drawcall);
-				break;
-			case Alpha_mode::Mask:
-				single_sided_alpha.emplace_back(drawcall);
-				break;
-			case Alpha_mode::Blend:
-				single_sided_blend.emplace_back(drawcall);
-				break;
-			}
-		}
-	}
-}
-
-Model_renderer::Draw_result Model_renderer::render_gltf(
-	const Command_buffer&                                                    command_buffer,
-	const io::mesh::gltf::Model&                                             model,
-	const algorithm::geometry::frustum::Frustum&                             frustum,
-	const glm::vec3&                                                         eye_position,
-	const glm::vec3&                                                         eye_path,
-	const Graphics_pipeline&                                                 single_pipeline,
-	const Graphics_pipeline&                                                 single_pipeline_alpha,
-	const Graphics_pipeline&                                                 single_pipeline_blend,
-	const Graphics_pipeline&                                                 double_pipeline,
-	const Graphics_pipeline&                                                 double_pipeline_alpha,
-	const Graphics_pipeline&                                                 double_pipeline_blend,
-	const Pipeline_layout&                                                   pipeline_layout,
-	const std::function<void(const io::mesh::gltf::Material&)>&              bind_func,
-	const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_opaque,
-	const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_mask,
-	const std::function<void(const io::mesh::gltf::Primitive&)>&             bind_vertex_func_alpha,
-	const std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>& special_transformation,
-	bool                                                                     sort_drawcall
-)
-{
-	utility::Cpu_timer timer;
-	timer.start();
-
-	// Initialization
-	{
-		single_sided.clear(), double_sided.clear();
-		single_sided_alpha.clear(), double_sided_alpha.clear();
-		single_sided_blend.clear(), double_sided_blend.clear();
-
-		single_sided.reserve(model.nodes.size()), double_sided.reserve(model.nodes.size());
-		single_sided_alpha.reserve(model.nodes.size()), double_sided_alpha.reserve(model.nodes.size());
-		single_sided_blend.reserve(model.nodes.size()), double_sided_blend.reserve(model.nodes.size());
+		(material.double_sided ? double_sided : single_sided).emplace(drawcall, material.alpha_mode);
 	}
 
-	float near = std::numeric_limits<float>::max(), far = -std::numeric_limits<float>::max();
-
-	// recursive collect
-	for (const auto& scene : model.scenes)
-	{
-		for (auto idx : scene.nodes)
-			render_node(special_transformation, model, idx, glm::mat4(1.0), frustum, eye_position, eye_path, near, far);
-	}
-
-	// sort drawcalls
-
-	if (sort_drawcall)
-	{
-		std::sort(single_sided.begin(), single_sided.end());
-		std::sort(double_sided.begin(), double_sided.end());
-
-		std::sort(single_sided_alpha.begin(), single_sided_alpha.end());
-		std::sort(double_sided_alpha.begin(), double_sided_alpha.end());
-
-		std::sort(single_sided_blend.begin(), single_sided_blend.end());
-		std::sort(double_sided_blend.begin(), double_sided_blend.end());
-	}
-
-	uint32_t vertex_count = 0;
-
-	// draw a drawlist
-	auto draw = [&](const std::vector<Renderer_drawcall>&                        draw_list,
-					const Graphics_pipeline&                                     pipeline,
-					const std::function<void(const io::mesh::gltf::Primitive&)>& bind_vertex_func)
-	{
-		if (draw_list.empty()) return;
-
-		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-
-		uint32_t prev_node = -1, prev_vertex_buffer = -1, prev_offset = -1, prev_material = -1;
-
-		for (const auto& drawcall : draw_list)
-		{
-			if (prev_node != drawcall.node_idx)
-			{
-				auto push_constants = Gbuffer_pipeline::Model_matrix(drawcall.transformation);
-				command_buffer.push_constants(pipeline_layout, vk::ShaderStageFlagBits::eVertex, push_constants);
-				prev_node = drawcall.node_idx;
-			}
-
-			if (drawcall.primitive.material_idx != prev_material)
-			{
-				bind_func(model.materials[drawcall.primitive.material_idx]);
-				prev_material = drawcall.primitive.material_idx;
-			}
-
-			if (drawcall.primitive.position_buffer != prev_vertex_buffer || drawcall.primitive.position_offset != prev_offset)
-			{
-				bind_vertex_func(drawcall.primitive);
-				prev_vertex_buffer = drawcall.primitive.position_buffer;
-				prev_offset        = drawcall.primitive.position_offset;
-			}
-
-			command_buffer.draw(0, drawcall.primitive.vertex_count, 0, 1);
-			vertex_count += drawcall.primitive.vertex_count;
-		}
-	};
-
-	draw(single_sided, single_pipeline, bind_vertex_func_opaque);
-
-	draw(double_sided, double_pipeline, bind_vertex_func_opaque);
-
-	draw(single_sided_alpha, single_pipeline_alpha, bind_vertex_func_mask);
-
-	draw(double_sided_alpha, double_pipeline_alpha, bind_vertex_func_mask);
-
-	draw(single_sided_blend, single_pipeline_blend, bind_vertex_func_alpha);
-
-	draw(double_sided_blend, double_pipeline_blend, bind_vertex_func_alpha);
-
-	timer.end();
-
-	return {near, far, timer.duration<std::chrono::milliseconds>(), vertex_count};
+	return result;
 }

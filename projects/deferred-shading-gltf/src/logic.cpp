@@ -135,6 +135,7 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 
 		core->ui_controller.imgui_new_frame();
 		core->params.camera_controller.update(ImGui::GetIO());
+		ui_logic();
 
 		uint32_t image_idx;
 
@@ -165,58 +166,16 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 			start_threads();
 		}
 
+		// Record Command Buffer
+		draw(image_idx);
+
+		// wait for fences
 		const auto wait_fence_result = core->env.device->waitForFences({core->render_targets.next_frame_fence}, true, 1e10);
 		if (wait_fence_result != vk::Result::eSuccess) throw Exception("Fence wait timeout!");
 		core->env.device->resetFences({core->render_targets.next_frame_fence});
 
-		// Record Command Buffer
-		draw(image_idx);
-
-		// Submit
-		const auto deferred_signal_semaphore = Semaphore::to_array({deferred_semaphore});
-		const auto deferred_submit_buffers = utility::join_array(
-			Command_buffer::to_array({current_gbuffer_command_buffer}),
-			Command_buffer::to_array(current_shadow_command_buffer)
-		);
-
-		const auto deferred_submit_info
-			= vk::SubmitInfo().setCommandBuffers(deferred_submit_buffers).setSignalSemaphores(deferred_signal_semaphore);
-
-		const auto lighting_signal_semaphore = Semaphore::to_array({lighting_semaphore});
-		const auto lighting_wait_semaphore   = Semaphore::to_array({deferred_semaphore});
-		const auto lighting_wait_stages = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
-		const auto lighting_submit_buffers = Command_buffer::to_array({current_lighting_command_buffer});
-		const auto lighting_submit_info    = vk::SubmitInfo()
-											  .setCommandBuffers(lighting_submit_buffers)
-											  .setWaitDstStageMask(lighting_wait_stages)
-											  .setWaitSemaphores(lighting_wait_semaphore)
-											  .setSignalSemaphores(lighting_signal_semaphore);
-
-		const auto compute_signal_semaphore = Semaphore::to_array({compute_semaphore});
-		const auto compute_wait_semaphore   = Semaphore::to_array({lighting_semaphore});
-		const auto compute_wait_stages    = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
-		const auto compute_submit_buffers = Command_buffer::to_array({current_compute_command_buffer});
-		const auto compute_submit_info    = vk::SubmitInfo()
-											 .setCommandBuffers(compute_submit_buffers)
-											 .setWaitDstStageMask(compute_wait_stages)
-											 .setWaitSemaphores(compute_wait_semaphore)
-											 .setSignalSemaphores(compute_signal_semaphore);
-
-		const auto composite_signal_semaphore = Semaphore::to_array({composite_semaphore});
-		const auto composite_wait_semaphore   = Semaphore::to_array({compute_semaphore, core->render_targets.acquire_semaphore});
-		const auto composite_wait_stages      = std::to_array<vk::PipelineStageFlags>(
-            {vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eColorAttachmentOutput}
-        );
-		const auto composite_submit_buffers   = Command_buffer::to_array({current_composite_command_buffer});
-		const auto composite_submit_info      = vk::SubmitInfo()
-											   .setCommandBuffers(composite_submit_buffers)
-											   .setWaitDstStageMask(composite_wait_stages)
-											   .setWaitSemaphores(composite_wait_semaphore)
-											   .setSignalSemaphores(composite_signal_semaphore);
-
-		core->env.g_queue.submit({deferred_submit_info, lighting_submit_info});
-		core->env.c_queue.submit({compute_submit_info});
-		core->env.g_queue.submit({composite_submit_info}, core->render_targets.next_frame_fence);
+		// Submit Command Buffers
+		submit_commands();
 
 		// Present
 		{
@@ -242,6 +201,56 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 			}
 		}
 	}
+}
+
+void App_render_logic::submit_commands()
+{
+	const auto gbuffer_signal_semaphore = Semaphore::to_array({gbuffer_semaphore});
+	const auto gbuffer_submit_buffer    = Command_buffer::to_array({current_gbuffer_command_buffer});
+	const auto gbuffer_submit_info
+		= vk::SubmitInfo().setCommandBuffers(gbuffer_submit_buffer).setSignalSemaphores(gbuffer_signal_semaphore);
+
+	const auto  shadow_signal_semaphore = Semaphore::to_array({shadow_semaphore});
+	const auto& shadow_submit_buffer    = Command_buffer::to_array(current_shadow_command_buffer);
+	const auto  shadow_submit_info
+		= vk::SubmitInfo().setCommandBuffers(shadow_submit_buffer).setSignalSemaphores(shadow_signal_semaphore);
+
+	const auto lighting_signal_semaphore = Semaphore::to_array({lighting_semaphore});
+	const auto lighting_wait_semaphore   = Semaphore::to_array({gbuffer_semaphore, shadow_semaphore});
+	const auto lighting_wait_stages      = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
+	const auto lighting_submit_buffers   = Command_buffer::to_array({current_lighting_command_buffer});
+	const auto lighting_submit_info      = vk::SubmitInfo()
+										  .setCommandBuffers(lighting_submit_buffers)
+										  .setWaitDstStageMask(lighting_wait_stages)
+										  .setWaitSemaphores(lighting_wait_semaphore)
+										  .setSignalSemaphores(lighting_signal_semaphore);
+
+	const auto compute_signal_semaphore = Semaphore::to_array({compute_semaphore});
+	const auto compute_wait_semaphore   = Semaphore::to_array({lighting_semaphore});
+	const auto compute_wait_stages      = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
+	const auto compute_submit_buffers   = Command_buffer::to_array({current_compute_command_buffer});
+	const auto compute_submit_info      = vk::SubmitInfo()
+										 .setCommandBuffers(compute_submit_buffers)
+										 .setWaitDstStageMask(compute_wait_stages)
+										 .setWaitSemaphores(compute_wait_semaphore)
+										 .setSignalSemaphores(compute_signal_semaphore);
+
+	const auto composite_signal_semaphore = Semaphore::to_array({composite_semaphore});
+	const auto composite_wait_semaphore   = Semaphore::to_array({compute_semaphore, core->render_targets.acquire_semaphore});
+	const auto composite_wait_stages      = std::to_array<vk::PipelineStageFlags>(
+        {vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eColorAttachmentOutput}
+    );
+	const auto composite_submit_buffers = Command_buffer::to_array({current_composite_command_buffer});
+	const auto composite_submit_info    = vk::SubmitInfo()
+										   .setCommandBuffers(composite_submit_buffers)
+										   .setWaitDstStageMask(composite_wait_stages)
+										   .setWaitSemaphores(composite_wait_semaphore)
+										   .setSignalSemaphores(composite_signal_semaphore);
+
+	core->env.g_queue2.submit({shadow_submit_info});
+	core->env.g_queue.submit({gbuffer_submit_info, lighting_submit_info});
+	core->env.c_queue.submit({compute_submit_info});
+	core->env.g_queue.submit({composite_submit_info}, core->render_targets.next_frame_fence);
 }
 
 void App_render_logic::start_threads()
@@ -341,6 +350,8 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 	const std::vector<Command_buffer> command_buffers
 		= Command_buffer::allocate_multiple_from(local_command_pool, core->env.swapchain.image_count);
 
+	Drawcall_generator generator;
+
 	// draw loop
 	while (true)
 	{
@@ -349,101 +360,153 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 
 		const auto& command_buffer = command_buffers[current_idx];
 
+		utility::Cpu_timer timer;
+		timer.start();
+
 		command_buffer.begin();
-
 		core->env.debug_marker.begin_region(command_buffer, std::format("Render Shadow Map, Level {}", csm_idx), {1.0, 1.0, 0.0, 1.0});
-
-		// Begin Shadow Renderpass
-		command_buffer.begin_render_pass(
-			core->Pipeline_set.shadow_pipeline.render_pass,
-			core->render_targets[current_idx].shadow_rt.shadow_framebuffers[csm_idx],
-			vk::Rect2D({0, 0}, {shadow_map_res[csm_idx], shadow_map_res[csm_idx]}),
-			{Shadow_pipeline::clear_value},
-			vk::SubpassContents::eInline
-		);
-
-		// Set Viewport and Scissors
-		command_buffer.set_viewport(utility::flip_viewport(vk::Viewport(0, 0, shadow_map_res[csm_idx], shadow_map_res[csm_idx], 0.0, 1.0)));
-
-		command_buffer.set_scissor({
-			{0,					   0					  },
-			{shadow_map_res[csm_idx], shadow_map_res[csm_idx]}
-		});
-
-		// Bind Matrices
-		command_buffer.bind_descriptor_sets(
-			vk::PipelineBindPoint::eGraphics,
-			core->Pipeline_set.shadow_pipeline.pipeline_layout,
-			0,
-			{core->render_targets[current_idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
-		);
-
-		auto bind_descriptor = [=, this](auto material)
 		{
+
+			// Begin Shadow Renderpass
+			command_buffer.begin_render_pass(
+				core->Pipeline_set.shadow_pipeline.render_pass,
+				core->render_targets[current_idx].shadow_rt.shadow_framebuffers[csm_idx],
+				vk::Rect2D({0, 0}, {shadow_map_res[csm_idx], shadow_map_res[csm_idx]}),
+				{Shadow_pipeline::clear_value},
+				vk::SubpassContents::eInline
+			);
+
+			// Set Viewport and Scissors
+			command_buffer.set_viewport(
+				utility::flip_viewport(vk::Viewport(0, 0, shadow_map_res[csm_idx], shadow_map_res[csm_idx], 0.0, 1.0))
+			);
+
+			command_buffer.set_scissor({
+				{0,					   0					  },
+				{shadow_map_res[csm_idx], shadow_map_res[csm_idx]}
+			});
+
+			// Bind Matrices
 			command_buffer.bind_descriptor_sets(
 				vk::PipelineBindPoint::eGraphics,
 				core->Pipeline_set.shadow_pipeline.pipeline_layout,
-				1,
-				{material.albedo_only_descriptor_set}
-			);
-		};
-
-		auto bind_vertex = [=, this](const io::mesh::gltf::Primitive& primitive)
-		{
-			const auto& model = *core->source.model;
-			command_buffer->bindVertexBuffers(
 				0,
-				{model.vec3_buffers[primitive.position_buffer], model.vec2_buffers[primitive.uv_buffer]},
-				{primitive.position_offset * sizeof(glm::vec3), primitive.uv_offset * sizeof(glm::vec2)}
+				{core->render_targets[current_idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
 			);
-		};
 
-		auto bind_vertex_opaque = [=, this](const io::mesh::gltf::Primitive& primitive)
-		{
-			const auto& model = *core->source.model;
-			command_buffer->bindVertexBuffers(
-				0,
-				{model.vec3_buffers[primitive.position_buffer]},
-				{primitive.position_offset * sizeof(glm::vec3)}
-			);
-		};
+			auto bind_material = [=, this](auto drawcall)
+			{
+				command_buffer.bind_descriptor_sets(
+					vk::PipelineBindPoint::eGraphics,
+					core->Pipeline_set.shadow_pipeline.pipeline_layout,
+					1,
+					{core->source.model->materials[drawcall.primitive.material_idx].albedo_only_descriptor_set}
+				);
+			};
 
-		auto draw_result = shadow_renderer[csm_idx].render_gltf(
-			command_buffer,
-			*core->source.model,
-			draw_params.shadow_frustums[csm_idx],
-			{0, 0, 0},
-			-draw_params.light_dir,
-			core->Pipeline_set.shadow_pipeline.single_sided_pipeline,
-			core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
-			core->Pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
-			core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
-			core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
-			core->Pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
-			core->Pipeline_set.shadow_pipeline.pipeline_layout,
-			bind_descriptor,
-			bind_vertex_opaque,
-			bind_vertex,
-			bind_vertex,
-			animation_buffer,
-			true
-		);
+			auto bind_vertex = [=, this](auto drawcall)
+			{
+				const auto& model     = *core->source.model;
+				const auto& primitive = drawcall.primitive;
 
-		command_buffer.end_render_pass();
+				command_buffer->bindVertexBuffers(
+					0,
+					{model.vec3_buffers[primitive.position_buffer], model.vec2_buffers[primitive.uv_buffer]},
+					{primitive.position_offset * sizeof(glm::vec3), primitive.uv_offset * sizeof(glm::vec2)}
+				);
+			};
 
+			auto bind_vertex_opaque = [=, this](auto drawcall)
+			{
+				const auto& model     = *core->source.model;
+				const auto& primitive = drawcall.primitive;
+
+				command_buffer->bindVertexBuffers(
+					0,
+					{model.vec3_buffers[primitive.position_buffer]},
+					{primitive.position_offset * sizeof(glm::vec3)}
+				);
+			};
+
+			const auto gen_params = Drawcall_generator::Gen_params{
+				core->source.model.get(),
+				&animation_buffer,
+				draw_params.shadow_frustums[csm_idx],
+				{0, 0, 0},
+				-draw_params.light_dir,
+				glm::mat4(1.0),
+				0
+			};
+
+			const auto gen_result = generator.generate(gen_params);
+
+			float near = std::min((gen_result.near + gen_result.far) / 2.0f - 0.01f, gen_result.near);
+			float far  = std::max((gen_result.near + gen_result.far) / 2.0f + 0.01f, gen_result.far);
+
+			core->params.shadow_far[csm_idx]  = far;
+			core->params.shadow_near[csm_idx] = near;
+
+			shadow_object_count += gen_result.object_count;
+			shadow_vertex_count += gen_result.vertex_count;
+
+			// auto draw_result = shadow_renderer[csm_idx].render_gltf(
+			// 	command_buffer,
+			// 	*core->source.model,
+			// 	draw_params.shadow_frustums[csm_idx],
+			// 	{0, 0, 0},
+			// 	-draw_params.light_dir,
+			// 	core->Pipeline_set.shadow_pipeline.single_sided_pipeline,
+			// 	core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
+			// 	core->Pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
+			// 	core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
+			// 	core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
+			// 	core->Pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
+			// 	core->Pipeline_set.shadow_pipeline.pipeline_layout,
+			// 	bind_descriptor,
+			// 	bind_vertex_opaque,
+			// 	bind_vertex,
+			// 	bind_vertex,
+			// 	animation_buffer,
+			// 	true
+			// );
+
+			const auto& single_sided = generator.get_single_sided_drawlist();
+			const auto& double_sided = generator.get_double_sided_drawlist();
+
+			const auto single_draw_params = Drawlist::Draw_params{
+				command_buffer,
+				core->Pipeline_set.shadow_pipeline.single_sided_pipeline,
+				core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
+				core->Pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
+				core->Pipeline_set.shadow_pipeline.pipeline_layout,
+				bind_material,
+				bind_vertex_opaque,
+				bind_vertex,
+				bind_vertex
+			};
+
+			const auto double_draw_params = Drawlist::Draw_params{
+				command_buffer,
+				core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
+				core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
+				core->Pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
+				core->Pipeline_set.shadow_pipeline.pipeline_layout,
+				bind_material,
+				bind_vertex_opaque,
+				bind_vertex,
+				bind_vertex
+			};
+
+			single_sided.draw(single_draw_params);
+			double_sided.draw(double_draw_params);
+
+			command_buffer.end_render_pass();
+		}
 		core->env.debug_marker.end_region(command_buffer);
-
 		command_buffer.end();
 
-		draw_result.near = std::min((draw_result.near + draw_result.far) / 2.0f - 0.01f, draw_result.near);
-		draw_result.far  = std::max((draw_result.near + draw_result.far) / 2.0f + 0.01f, draw_result.far);
-
-		core->params.shadow_far[csm_idx]  = draw_result.far;
-		core->params.shadow_near[csm_idx] = draw_result.near;
-
-		shadow_cpu_time += draw_result.time_consumed;
-		shadow_object_count += shadow_renderer[csm_idx].get_object_count();
-		shadow_vertex_count += draw_result.vertex_count;
+		timer.end();
+		shadow_cpu_time += timer.duration<std::chrono::microseconds>();
 
 		current_shadow_command_buffer[csm_idx] = command_buffer;
 
@@ -465,6 +528,8 @@ void App_render_logic::gbuffer_thread_work()
 
 	const auto draw_extent = vk::Rect2D({0, 0}, core->env.swapchain.extent);
 
+	Drawcall_generator generator;
+
 	// draw loop
 	while (true)
 	{
@@ -474,10 +539,11 @@ void App_render_logic::gbuffer_thread_work()
 
 		const auto& command_buffer = command_buffers[current_idx];
 
+		utility::Cpu_timer timer;
+		timer.start();
+
 		command_buffer.begin();
-
 		core->env.debug_marker.begin_region(command_buffer, "Render Gbuffer", {0.0, 1.0, 1.0, 1.0});
-
 		command_buffer.begin_render_pass(
 			core->Pipeline_set.gbuffer_pipeline.render_pass,
 			core->render_targets[current_idx].gbuffer_rt.framebuffer,
@@ -497,19 +563,20 @@ void App_render_logic::gbuffer_thread_work()
 				{core->render_targets[current_idx].gbuffer_rt.camera_uniform_descriptor_set}
 			);
 
-			auto bind_descriptor = [&](auto material)
+			auto bind_material = [&](auto drawcall)
 			{
 				command_buffer.bind_descriptor_sets(
 					vk::PipelineBindPoint::eGraphics,
 					core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
 					1,
-					{material.descriptor_set}
+					{core->source.model->materials[drawcall.primitive.material_idx].descriptor_set}
 				);
 			};
 
-			auto bind_vertex = [=, this](const io::mesh::gltf::Primitive& primitive)
+			auto bind_vertex = [=, this](auto drawcall)
 			{
 				const auto& model = core->source.model;
+				const auto& primitive = drawcall.primitive;
 				command_buffer->bindVertexBuffers(
 					0,
 					{model->vec3_buffers[primitive.position_buffer],
@@ -523,44 +590,65 @@ void App_render_logic::gbuffer_thread_work()
 				);
 			};
 
-			auto draw_result = gbuffer_renderer.render_gltf(
-				command_buffer,
-				*(core->source.model),
+			const auto gen_params = Drawcall_generator::Gen_params{
+				core->source.model.get(),
+				&animation_buffer,
 				draw_params.gbuffer_frustum,
 				draw_params.eye_position,
 				draw_params.eye_path,
+				glm::mat4(1.0),
+				0
+			};
+
+			const auto gen_result = generator.generate(gen_params);
+
+			float far  = std::max(0.02f, gen_result.far);
+			float near = std::max(0.01f, gen_result.near);
+			near       = std::min(near, far - 0.01f);
+			near       = std::max(near, far / 200);
+
+			if (core->params.auto_adjust_near_plane) core->params.near = near;
+			if (core->params.auto_adjust_far_plane) core->params.far = far;
+
+			gbuffer_object_count = gen_result.object_count;
+			gbuffer_vertex_count = gen_result.vertex_count;
+
+			const auto& single_sided = generator.get_single_sided_drawlist();
+			const auto& double_sided = generator.get_double_sided_drawlist();
+
+			const auto single_draw_params = Drawlist::Draw_params{
+				command_buffer,
 				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline,
 				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
 				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_blend,
+				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+				bind_material,
+				bind_vertex,
+				bind_vertex,
+				bind_vertex
+			};
+
+			const auto double_draw_params = Drawlist::Draw_params{
+				command_buffer,
 				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
 				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
 				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_blend,
 				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
-				bind_descriptor,
+				bind_material,
 				bind_vertex,
 				bind_vertex,
-				bind_vertex,
-				animation_buffer,
-				true
-			);
+				bind_vertex
+			};
 
-			draw_result.far  = std::max(0.02f, draw_result.far);
-			draw_result.near = std::max(0.01f, draw_result.near);
-			draw_result.near = std::min(draw_result.near, draw_result.far - 0.01f);
-			draw_result.near = std::max(draw_result.near, draw_result.far / 200);
-
-			if (core->params.auto_adjust_near_plane) core->params.near = draw_result.near;
-			if (core->params.auto_adjust_far_plane) core->params.far = draw_result.far;
-
-			gbuffer_object_count = gbuffer_renderer.get_object_count();
-			gbuffer_cpu_time = draw_result.time_consumed;
-			gbuffer_vertex_count = draw_result.vertex_count;
+			single_sided.draw(single_draw_params);
+			double_sided.draw(double_draw_params);
 		}
 		command_buffer.end_render_pass();
-
 		core->env.debug_marker.end_region(command_buffer);
-
 		command_buffer.end();
+
+		timer.end();
+		gbuffer_cpu_time = timer.duration<std::chrono::microseconds>();
 
 		current_gbuffer_command_buffer = command_buffer;
 
@@ -609,7 +697,6 @@ void App_render_logic::post_thread_work()
 			draw_composite(current_idx, composite_command_buffer[current_idx]);
 
 			// Draw UI
-			ui_logic();
 			core->env.debug_marker.begin_region(composite_command_buffer[current_idx], "Draw IMGUI", {0.7, 0.0, 1.0, 1.0});
 			core->ui_controller.imgui_draw(core->env, composite_command_buffer[current_idx], current_idx, false);
 			core->env.debug_marker.end_region(composite_command_buffer[current_idx]);
@@ -1093,7 +1180,7 @@ void App_render_logic::stat_panel()
 		ImGui::Text("Tris: G=%d/S=%d", gbuffer_vertex_count / 3, shadow_vertex_count / 3);
 		ImGui::Text("FPS: %.1f", framerate);
 		ImGui::Text("DT: %.1fms", dt * 1000);
-		ImGui::Text("CPU Time: %.0fus", (gbuffer_cpu_time + shadow_cpu_time) * 1000);
+		ImGui::Text("CPU Time: %.0fus", gbuffer_cpu_time + shadow_cpu_time);
 	}
 	ImGui::End();
 }
@@ -1279,6 +1366,7 @@ void App_render_logic::update_animation()
 	if (animation_playing)
 	{
 		animation_time = now - animation_start_time;
+		animation_time *= animation_rate;
 
 		if (animation_time > animation.end_time)
 		{
@@ -1289,7 +1377,16 @@ void App_render_logic::update_animation()
 		}
 	}
 
-	animation.set_transformation(animation_time, model.nodes, animation_buffer);
+	animation.set_transformation(
+		animation_time,
+		[&](uint32_t idx)
+		{
+			auto find = animation_buffer.find(idx);
+			if (find == animation_buffer.end()) find = animation_buffer.emplace(idx, model.nodes[idx].transformation).first;
+
+			return std::ref(find->second);
+		}
+	);
 }
 
 void App_render_logic::animation_tab()
@@ -1330,6 +1427,7 @@ void App_render_logic::animation_tab()
 	if (selected_animation < 0) return;
 
 	const auto& animation = model.animations[selected_animation];
+	const double now       = ImGui::GetTime();
 
 	ImGui::BulletText("Start Time: %.2fs", animation.start_time);
 	ImGui::BulletText("End Time: %.2fs", animation.end_time);
@@ -1340,9 +1438,12 @@ void App_render_logic::animation_tab()
 	}
 	ImGui::EndDisabled();
 
-	ImGui::Checkbox("Cycle Animation", &animation_cycle);
+	if (ImGui::SliderFloat("Animation Rate", &animation_rate, 0.1, 2.0, "%.1fx", ImGuiSliderFlags_AlwaysClamp))
+	{
+		animation_start_time = now - animation_time / animation_rate;
+	}
 
-	const double now = ImGui::GetTime();
+	ImGui::Checkbox("Cycle Animation", &animation_cycle);
 
 	// Start/stop button
 	if (ImGui::Button(animation_playing ? "Stop" : "Play"))
@@ -1352,7 +1453,7 @@ void App_render_logic::animation_tab()
 		else
 		{
 			animation_playing    = true;
-			animation_start_time = now - animation_time;
+			animation_start_time = now - animation_time / animation_rate;
 		}
 	}
 }

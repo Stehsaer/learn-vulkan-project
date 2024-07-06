@@ -36,10 +36,9 @@ class App_render_logic : public Application_logic_base
 
 	/* Render */
 
-	std::array<Model_renderer, csm_count> shadow_renderer;
-	Model_renderer                        gbuffer_renderer;
-
 	Render_params::Runtime_parameters draw_params;
+
+	void submit_commands();
 
 	/* Multi-threading */
 
@@ -48,6 +47,10 @@ class App_render_logic : public Application_logic_base
 
 	void start_threads();
 	void stop_threads();
+
+	void shadow_thread_work(uint32_t csm_idx);
+	void gbuffer_thread_work();
+	void post_thread_work();
 
 	// barriers
 	std::barrier<> model_rendering_statistic_barrier{csm_count + 2},  // (csm_count) Shadow Threads, 1 Gbuffer Thread, 1 Post Thread
@@ -67,11 +70,7 @@ class App_render_logic : public Application_logic_base
 	Command_buffer current_gbuffer_command_buffer, current_lighting_command_buffer, current_compute_command_buffer,
 		current_composite_command_buffer;
 
-	Semaphore deferred_semaphore, composite_semaphore, compute_semaphore, lighting_semaphore;
-
-	void shadow_thread_work(uint32_t csm_idx);
-	void gbuffer_thread_work();
-	void post_thread_work();
+	Semaphore gbuffer_semaphore, shadow_semaphore, composite_semaphore, compute_semaphore, lighting_semaphore;
 
 	/* Draw Logic */
 
@@ -97,7 +96,7 @@ class App_render_logic : public Application_logic_base
 
 	int    selected_animation = -1;
 	bool   animation_playing = false, animation_cycle = true;
-	float  animation_time       = 0.0;
+	float  animation_time = 0.0, animation_rate = 1.0;
 	double animation_start_time = 0.0;
 
 	void update_animation();
@@ -114,7 +113,8 @@ class App_render_logic : public Application_logic_base
 		Application_logic_base(std::move(resource)),
 		frame_start_semaphore(0)
 	{
-		deferred_semaphore  = Semaphore(core->env.device);
+		gbuffer_semaphore   = Semaphore(core->env.device);
+		shadow_semaphore    = Semaphore(core->env.device);
 		composite_semaphore = Semaphore(core->env.device);
 		compute_semaphore   = Semaphore(core->env.device);
 		lighting_semaphore  = Semaphore(core->env.device);

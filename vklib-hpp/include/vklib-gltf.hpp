@@ -345,8 +345,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		void load(const tinygltf::Model& model, const tinygltf::Animation& animation);
 
-		void set_transformation(float time, const std::vector<Node>& node_list, std::unordered_map<uint32_t, Node_transformation>& map)
-			const;
+		void set_transformation(float time, const std::function<Node_transformation&(uint32_t)>& func) const;
 	};
 
 	class Model

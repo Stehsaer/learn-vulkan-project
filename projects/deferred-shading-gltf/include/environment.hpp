@@ -31,7 +31,7 @@ class Environment
 
 	uint32_t g_family_idx, p_family_idx, c_family_idx;
 	uint32_t g_family_count;
-	Queue    g_queue, p_queue, t_queue, c_queue;
+	Queue    g_queue, g_queue2, p_queue, t_queue, c_queue;
 
 	Command_pool                command_pool;
 	std::vector<Command_buffer> command_buffer;

@@ -20,6 +20,9 @@ namespace VKLIB_HPP_NAMESPACE::utility
 		};
 	}
 
+	template <typename Unit_T>
+	concept Duration = requires { typename Unit_T::period; };
+
 	struct Cpu_timer
 	{
 		std::chrono::steady_clock::time_point start_point;
@@ -28,7 +31,7 @@ namespace VKLIB_HPP_NAMESPACE::utility
 		void start() { start_point = std::chrono::steady_clock::now(); }
 		void end() { end_point = std::chrono::steady_clock::now(); }
 
-		template <typename Unit_T>
+		template <Duration Unit_T>
 		double duration() const
 		{
 			auto duration = end_point - start_point;

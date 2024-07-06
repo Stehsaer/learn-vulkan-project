@@ -223,6 +223,9 @@ void Environment::create_logic_device()
 	const auto g_queue_offset = family_idx_map[g_family_idx];
 	family_idx_map[g_family_idx] += 1;
 
+	const auto g_queue2_offset = family_idx_map[g_family_idx];
+	family_idx_map[g_family_idx] += 1;
+
 	const auto t_queue_offset = family_idx_map[g_family_idx];
 	family_idx_map[g_family_idx] += 1;
 
@@ -270,7 +273,7 @@ void Environment::create_logic_device()
 	device = Device(physical_device, queue_create_info, {}, device_extensions, requested_features, nullptr);
 
 	g_queue = device->getQueue(g_family_idx, g_queue_offset);
-
+	g_queue2 = device->getQueue(g_family_idx, g_queue2_offset);
 	p_queue = device->getQueue(p_family_idx, p_queue_offset);
 	t_queue = device->getQueue(g_family_idx, t_queue_offset);
 	c_queue = device->getQueue(c_family_idx, c_queue_offset);

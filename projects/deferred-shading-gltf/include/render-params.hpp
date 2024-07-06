@@ -24,7 +24,7 @@ struct Render_params
 	float emissive_brightness = 1;
 	float skybox_brightness   = 1;
 
-	float bloom_start = 2.0, bloom_end = 10.0, bloom_intensity = 0.03;
+	float bloom_start = 5.0, bloom_end = 25.0, bloom_intensity = 0.02;
 	float adapt_speed = 1;
 
 	/*====== Shadow ======*/

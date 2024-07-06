@@ -42,19 +42,11 @@ const vec3 rgb_brightness_coeff = vec3(0.21, 0.72, 0.07);
 
 const float min_log_luminance = -10, max_log_luminance = 14;
 
-vec2 poisson_disk[12] = vec2[](
-	vec2(-.326,-.406),
-	vec2(-.840,-.074),
-	vec2(-.696, .457),
-	vec2(-.203, .621),
-	vec2( .962,-.195),
-	vec2( .473,-.480),
-	vec2( .519, .767),
-	vec2( .185,-.893),
-	vec2( .507, .064),
-	vec2( .896, .412),
-	vec2(-.322,-.933),
-	vec2(-.792,-.598)
+vec2 poisson_disk[4] = vec2[](
+	vec2(-1,-2),
+	vec2(-1, 1),
+	vec2( 1,-1),
+	vec2( 1, 1)
 );
 
 float sample_shadowmap(in int index, in vec2 uv, in float depth)
@@ -100,14 +92,14 @@ float get_shadow(in vec3 position)
 	vec2 shadow_uv = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
 	float depth = shadow_coord.z;
 
-	float rotate_offset = random(gl_FragCoord.xy) * PI * 2;
+	float rotate_offset = random(shadow_uv * 100) * PI * 2;
 	vec2 sample_delta = params.shadow_sizes[index].xy;
 
 	float shadow_accumulate = sample_shadowmap(index, shadow_uv, depth);
 	int num = 1;
 
-#pragma unroll_loop_start
-	for(int i = 0; i < 12; i++)
+// #pragma unroll_loop_start
+	for(int i = 0; i < 4; i++)
 	{
 		vec2 uv = shadow_uv + rotate(poisson_disk[i] * sample_delta, rotate_offset + i * PI / 6.0);
 		if(uv.x > 1.0 || uv.x < 0.0 || uv.y > 1.0 || uv.y < 0.0) continue;
@@ -115,9 +107,9 @@ float get_shadow(in vec3 position)
 		shadow_accumulate += sample_shadowmap(index, uv, depth);
 		num++;
 	}
-#pragma unroll_loop_end
+// #pragma unroll_loop_end
 
-	return min(shadow_accumulate / num * 1.5, 1.0);
+	return min(shadow_accumulate / num * 1.3, 1.0);
 }
 
 void main()
@@ -128,10 +120,10 @@ void main()
 
 	// View & Position
 	float fragment_depth = texture(depth_tex, uv).r;
-	vec4 projection_space = vec4(naive_uv * 2 - vec2(1), fragment_depth , 1.0);
+	vec4 projection_space = vec4(naive_uv * 2 - vec2(1), fragment_depth, 1.0);
 	vec4 world_space = params.view_projection_inv * projection_space;
 	vec3 position = world_space.xyz / world_space.w;
-	vec3 view_direction = position - params.camera_position;
+	vec3 view_direction = normalize(position - params.camera_position);
 
 	// Normal & Emissive Values
 	vec4 normal_sampled = texture(normal_tex, uv);
@@ -159,23 +151,20 @@ void main()
 	float is_shadow = get_shadow(position);
 
 	vec3 light_dir = normalize(params.sunlight_pos);
-	vec3 view_dir = -normalize(view_direction);
 
 	vec3 accumulated_light = vec3(0.0);
 
 	// Direct light
-	accumulated_light += gltf_calculate_pbr(light_dir, params.sunlight_color, view_dir, normal, color, pbr);
-	accumulated_light *= is_shadow;
-	accumulated_light *= pbr.r;
+	accumulated_light += gltf_calculate_pbr(light_dir, params.sunlight_color, -view_direction, normal, color, pbr) * is_shadow;
 
 	// Ambient light (IBL From Sky)
 	{
 		const float max_lod = 5.0;
 
-		vec3 reflect_dir = reflect(-view_dir, normal);
+		vec3 reflect_dir = reflect(view_direction, normal);
 		vec3 prefiltered_color = textureLod(skybox_cube, reflect_dir, pbr.g * max_lod).rgb;
 
-		vec2 lut = texture(brdf_lut, vec2(max(0.0, dot(normal, view_dir)))).rg;
+		vec2 lut = texture(brdf_lut, vec2(max(0.0, dot(normal, view_direction)))).rg;
 
 		vec3 F0 = vec3(0.04);
 		F0 = mix(F0, color, pbr.b);
@@ -183,12 +172,10 @@ void main()
 		vec3 F = fresnel_roughness(max(0.0, dot(normal, reflect_dir)), F0, pbr.g);
 		vec3 specular = prefiltered_color * (F * lut.x + lut.y);
 
-		vec3 kS = F;
-		vec3 kD = 1.0 - kS;
-		kD *= 1.0 - pbr.b;    
+		vec3 kD = (1.0 - F) * (1.0 - pbr.b);
 
-		accumulated_light += (texture(diffuse_cube, normal).rgb * kD * color + specular * mix(color, F0, pbr.b)) * pbr.r  * params.skybox_brightness;
-	}
+		accumulated_light += (texture(diffuse_cube, normal).rgb * kD * color + specular * mix(color, F0, pbr.b)) * pbr.r * params.skybox_brightness;
+	} 
 
 	// Emissive
 	accumulated_light += emissive * params.emissive_brightness;

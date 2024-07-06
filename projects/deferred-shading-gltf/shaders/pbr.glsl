@@ -53,7 +53,7 @@ vec3 fresnel(float v_dot, vec3 F0)
 }
 
 // Fresnel with roughness
-vec3 fresnel_roughness(float v_dot, vec3 F0, float roughness)
+vec3 fresnel_roughness(in float v_dot, in vec3 F0, in float roughness)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - v_dot, 0.0, 1.0), 5.0);
 } 

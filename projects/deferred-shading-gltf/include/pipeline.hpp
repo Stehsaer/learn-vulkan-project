@@ -9,7 +9,7 @@ struct General_model_matrix
 
 struct Shadow_pipeline
 {
-	static constexpr vk::Format shadow_map_format = vk::Format::eD32Sfloat;
+	static constexpr vk::Format shadow_map_format = vk::Format::eD24UnormS8Uint;
 
 	// At Shadow Vert, set = 0
 	struct Shadow_uniform
@@ -39,9 +39,9 @@ struct Shadow_pipeline
 
 struct Gbuffer_pipeline
 {
-	static constexpr vk::Format normal_format = vk::Format::eR32G32B32A32Sfloat, color_format = vk::Format::eR8G8B8A8Unorm,
+	static constexpr vk::Format normal_format = vk::Format::eR16G16B16A16Sfloat, color_format = vk::Format::eR8G8B8A8Unorm,
 								pbr_format = vk::Format::eR8G8B8A8Unorm, emissive_format = vk::Format::eR8G8B8A8Unorm,
-								depth_format = vk::Format::eD32Sfloat;
+								depth_format = vk::Format::eD24UnormS8Uint;
 
 	// At Gbuffer Vert, set = 0
 	struct Camera_uniform

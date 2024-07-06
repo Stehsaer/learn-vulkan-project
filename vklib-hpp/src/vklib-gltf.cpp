@@ -1584,11 +1584,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 	}
 
-	void Animation::set_transformation(
-		float                                              time,
-		const std::vector<Node>&                           node_list,
-		std::unordered_map<uint32_t, Node_transformation>& map
-	) const
+	void Animation::set_transformation(float time, const std::function<Node_transformation&(uint32_t)>& func) const
 	{
 		for (const auto& channel : channels)
 		{
@@ -1601,28 +1597,26 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				throw Animation_error("Mismatch sampler type with channel target");
 			}
 
-			// check existence
-			auto find = map.find(channel.node);
-			if (find == map.end()) find = map.emplace(channel.node, node_list[channel.node].transformation).first;
+			auto& find = func(channel.node);
 
 			switch (channel.target)
 			{
 			case Animation_target::Translation:
 			{
 				const auto& sampler      = std::get<0>(sampler_variant);
-				find->second.translation = sampler[time];
+				find.translation         = sampler[time];
 				break;
 			}
 			case Animation_target::Rotation:
 			{
 				const auto& sampler   = std::get<1>(sampler_variant);
-				find->second.rotation = sampler[time];
+				find.rotation         = sampler[time];
 				break;
 			}
 			case Animation_target::Scale:
 			{
 				const auto& sampler = std::get<0>(sampler_variant);
-				find->second.scale  = sampler[time];
+				find.scale          = sampler[time];
 				break;
 			}
 			default:

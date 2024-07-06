@@ -82,6 +82,23 @@ namespace VKLIB_HPP_NAMESPACE
 		}
 	};
 
+	struct Invalid_argument : public Exception
+	{
+		std::string param_name, expect;
+
+		Invalid_argument(
+			const std::string&          msg,
+			std::string                 param_name,
+			std::string                 expect = "",
+			const std::source_location& _loc   = std::source_location::current()
+		) :
+			Exception(msg, _loc),
+			param_name(std::move(param_name)),
+			expect(std::move(expect))
+		{
+		}
+	};
+
 	template <typename T>
 	class Mono_resource
 	{

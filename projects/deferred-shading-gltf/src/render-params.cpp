@@ -169,6 +169,159 @@ static glm::vec3 get_sunlight_direction(float sunlight_yaw, float sunlight_pitch
 	return glm::normalize(glm::vec3(light));
 }
 
+glm::vec3 Render_params::get_light_direction() const
+{
+	return get_sunlight_direction(sunlight_yaw, sunlight_pitch);
+}
+
+Shadow_parameter Render_params::get_shadow_parameters(
+	float                   near,
+	float                   far,
+	float                   shadow_near,
+	float                   shadow_far,
+	const Camera_parameter& gbuffer_camera
+) const
+{
+	//* Preparations
+
+	auto tempz_1 = gbuffer_camera.projection_matrix * glm::vec4(0, 0, -near, 1),
+		 tempz_2 = gbuffer_camera.projection_matrix * glm::vec4(0, 0, -far, 1);
+	tempz_1 /= tempz_1.w, tempz_2 /= tempz_2.w;
+
+	// gbuffer near & far value in projection space
+	const auto gbuffer_near = tempz_1.z, gbuffer_far = tempz_2.z;
+
+	const auto light_direction = get_light_direction();
+
+	// world -> centered-shadow-view
+	const auto shadow_view
+		= glm::lookAt({0, 0, 0}, -light_direction, light_direction == glm::vec3(0, 1, 0) ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0));
+
+	// camera-projection -> centered-shadow-view
+	const auto camera_to_shadow = shadow_view * gbuffer_camera.view_projection_matrix_inv;
+
+	//* Computation
+
+	auto arr = algorithm::geometry::generate_boundaries(
+		{-1, -1, gbuffer_near},
+		{1, 1, gbuffer_far}
+	);  // bounding box under g-projection space
+
+	// transform bounding box: camera-projection -> center-shadow-view
+	for (auto& v : arr)
+	{
+		auto v4 = camera_to_shadow * glm::vec4(v, 1.0);
+		v4 /= v4.w;
+		v = v4;
+	}
+
+	// find convex envelope
+	const auto count = algorithm::math::get_convex_envelope(arr);
+
+	// variables for storing bests
+	float     smallest_area = std::numeric_limits<float>::max();
+	float     rotate_ang    = 0;
+	float     width, height;
+	glm::vec2 center;
+
+	// iterates over the envelope and find the best fit
+	for (auto i : Range(count))
+	{
+		const auto i2 = (i + 1) % count;                      // index of the next point in the envelope-loop
+		const auto p1 = arr[i], p2 = arr[i2];                 // p1: current point; p2: next point
+		const auto vec = glm::normalize(glm::vec2(p2 - p1));  // directional unit vector p1->p2
+
+		float min_dot = std::numeric_limits<float>::max(), max_dot = -std::numeric_limits<float>::max(),
+			  max_height_sqr = -std::numeric_limits<float>::max();
+
+		// iterate over all points in the envelope
+		for (auto j : Range(count))
+		{
+			const auto vec2 = glm::vec2(arr[j] - p1);  // 2D relative vector
+
+			const auto dot = glm::dot(vec2, vec);  // "horizontal" width
+			min_dot        = std::min(min_dot, dot);
+			max_dot        = std::max(max_dot, dot);
+
+			const auto height_sqr = glm::length(vec2) * glm::length(vec2) - dot * dot;  // square of the height
+			max_height_sqr        = std::max(max_height_sqr, height_sqr);
+		}
+
+		// area = width * height = (max_width - min_height) * sqrt(height_square)
+		const auto area = std::abs(max_dot - min_dot) * std::sqrt(max_height_sqr);
+
+		// use the smallest area possible
+		if (area < smallest_area)
+		{
+			smallest_area = area;
+			rotate_ang    = std::atan2(vec.y, vec.x);
+			width         = std::abs(max_dot - min_dot);
+			height        = std::sqrt(max_height_sqr);
+			center        = glm::vec2(p1) + vec * min_dot;
+		}
+	}
+
+	// world -> new-shadow-view
+	const auto corrected_shadow_view
+		= glm::rotate(glm::mat4(1.0), rotate_ang, {0, 0, -1}) * glm::translate(glm::mat4(1.0), glm::vec3(-center, 0.0)) * shadow_view;
+	const auto corrected_shadow_view_inv = glm::inverse(corrected_shadow_view);
+
+	// new-shadow-view -> new-shadow-projection
+	const auto shadow_projection = glm::ortho<float>(0, width, 0, height, shadow_near, shadow_far);
+
+	const auto eye_position  = glm::vec3{0, 0, 0};
+	const auto eye_direction = -light_direction;
+
+	const auto shadow_frustum = algorithm::geometry::frustum::Frustum::from_ortho(
+		glm::vec3(corrected_shadow_view_inv * glm::vec4(0.0, 0.0, 0.0, 1.0)),
+		glm::vec3(corrected_shadow_view_inv * glm::vec4(0.0, 0.0, -1.0, 0.0)),
+		glm::vec3(corrected_shadow_view_inv * glm::vec4(0.0, 1.0, 0.0, 0.0)),
+		0,
+		width,
+		0,
+		height,
+		shadow_near,
+		shadow_far
+	);
+
+	return {
+		shadow_frustum,
+		corrected_shadow_view,
+		shadow_projection,
+		eye_position,
+		eye_direction,
+		{width, height}
+	};
+}
+
+Camera_parameter Render_params::get_gbuffer_parameter(const Environment& env) const
+{
+	const auto aspect = (float)env.swapchain.extent.width / env.swapchain.extent.height, fov_y = glm::radians<float>(fov);
+
+	// world -> camera-view
+	const auto view_matrix = camera_controller.view_matrix();
+
+	// camera-view -> camera-projection
+	const auto projection_matrix = glm::perspective<float>(fov_y, aspect, near, far);
+
+	const auto eye_position  = camera_controller.eye_position();
+	const auto eye_direction = camera_controller.eye_path();
+
+	// world -> camera-projection
+
+	const auto frustum = algorithm::geometry::frustum::Frustum::from_projection(
+		eye_position,
+		eye_direction,
+		glm::vec3(0, 1, 0),
+		aspect,
+		fov_y,
+		near,
+		far
+	);
+
+	return {frustum, view_matrix, projection_matrix, eye_position, eye_direction};
+}
+
 Render_params::Runtime_parameters Render_params::gen_runtime_parameters(const Environment& env) const
 {
 	Runtime_parameters out_params;

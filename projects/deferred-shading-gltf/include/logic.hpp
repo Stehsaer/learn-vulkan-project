@@ -31,45 +31,27 @@ class App_render_logic : public Application_logic_base
 
 	/* Statistics */
 
-	std::atomic<double>   gbuffer_cpu_time, shadow_cpu_time;
-	std::atomic<uint32_t> gbuffer_object_count, shadow_object_count, gbuffer_vertex_count, shadow_vertex_count;
-	glm::vec3             scene_min_bound{0.0}, scene_max_bound{0.0};
+	double    cpu_time;
+	uint32_t  gbuffer_object_count, shadow_object_count, gbuffer_vertex_count, shadow_vertex_count;
+	glm::vec3 scene_min_bound{0.0}, scene_max_bound{0.0};
 
 	/* Render */
 
-	Render_params::Runtime_parameters draw_params;
+	Drawcall_generator                        gbuffer_generator;
+	std::array<Drawcall_generator, csm_count> shadow_generator;
 
-	void submit_commands();
+	std::array<Shadow_parameter, csm_count> shadow_params;
+	Camera_parameter                        gbuffer_param;
 
-	/* Multi-threading */
+	// Vulkan Objects
 
-	bool                      multi_thread_stop = false;
-	std::counting_semaphore<> frame_start_semaphore;
+	struct Command_buffer_set
+	{
+		Command_buffer gbuffer_command_buffer, shadow_command_buffer, lighting_command_buffer, compute_command_buffer,
+			composite_command_buffer;
+	};
 
-	void start_threads();
-	void stop_threads();
-
-	void shadow_thread_work(uint32_t csm_idx);
-	void gbuffer_thread_work();
-	void post_thread_work();
-
-	// barriers
-	std::barrier<> model_rendering_statistic_barrier{csm_count + 2},  // (csm_count) Shadow Threads, 1 Gbuffer Thread, 1 Post Thread
-		render_thread_barrier{csm_count + 3};  // (csm_count) Shadow Threads, 1 Gbuffer Thread, 1 Post Thread, 1 Main Thread
-
-	// Current Image Index
-	uint32_t current_idx = 0;
-
-	// Threads
-	std::array<std::jthread, csm_count> shadow_thread;
-	std::jthread                        gbuffer_thread;
-	std::jthread                        post_thread;
-
-	// Vulkan Side Synchronization
-
-	std::array<Command_buffer, csm_count> current_shadow_command_buffer;
-	Command_buffer current_gbuffer_command_buffer, current_lighting_command_buffer, current_compute_command_buffer,
-		current_composite_command_buffer;
+	std::vector<Command_buffer_set> command_buffers;
 
 	Semaphore gbuffer_semaphore, shadow_semaphore, composite_semaphore, compute_semaphore, lighting_semaphore;
 
@@ -77,10 +59,21 @@ class App_render_logic : public Application_logic_base
 
 	void draw(uint32_t idx);
 
+	void draw_gbuffer(uint32_t idx, const Command_buffer& command_buffer);
+
+	void update_uniforms(uint32_t idx);
+
+	void draw_shadow(uint32_t idx, const Command_buffer& command_buffer);
 	void draw_lighting(uint32_t idx, const Command_buffer& command_buffer);
+
 	void compute_auto_exposure(uint32_t idx, const Command_buffer& command_buffer);
 	void compute_bloom(uint32_t idx, const Command_buffer& command_buffer);
+	void compute_process(uint32_t idx, const Command_buffer& command_buffer);
+
 	void draw_composite(uint32_t idx, const Command_buffer& command_buffer);
+	void draw_swapchain(uint32_t idx, const Command_buffer& command_buffer);
+
+	void submit_commands(const Command_buffer_set& set);
 
 	/* UI-related */
 
@@ -104,23 +97,28 @@ class App_render_logic : public Application_logic_base
 
   public:
 
-	virtual ~App_render_logic()
-	{
-		core->env.device->waitIdle();
-		stop_threads();
-	}
+	virtual ~App_render_logic() { core->env.device->waitIdle(); }
 
 	App_render_logic(std::shared_ptr<Core> resource) :
-		Application_logic_base(std::move(resource)),
-		frame_start_semaphore(0)
+		Application_logic_base(std::move(resource))
 	{
+		// Create semaphores
 		gbuffer_semaphore   = Semaphore(core->env.device);
 		shadow_semaphore    = Semaphore(core->env.device);
 		composite_semaphore = Semaphore(core->env.device);
 		compute_semaphore   = Semaphore(core->env.device);
 		lighting_semaphore  = Semaphore(core->env.device);
 
-		start_threads();
+		// Create command buffers
+		command_buffers.resize(core->env.swapchain.image_count);
+		for (auto& command_buffer : command_buffers)
+		{
+			command_buffer.shadow_command_buffer    = Command_buffer(core->env.command_pool);
+			command_buffer.gbuffer_command_buffer   = Command_buffer(core->env.command_pool),
+			command_buffer.lighting_command_buffer  = Command_buffer(core->env.command_pool),
+			command_buffer.compute_command_buffer   = Command_buffer(core->env.command_pool),
+			command_buffer.composite_command_buffer = Command_buffer(core->env.command_pool);
+		}
 	}
 
 	virtual std::shared_ptr<Application_logic_base> work();

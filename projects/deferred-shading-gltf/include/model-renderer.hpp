@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline.hpp"
+#include "render-params.hpp"
 
 struct Drawcall
 {
@@ -95,6 +96,13 @@ class Drawcall_generator
 		glm::mat4                             base_transformation = glm::mat4(1.0);
 
 		uint32_t scene_idx;
+
+		void set_by_camera_parameter(const Camera_parameter& param)
+		{
+			frustum      = param.frustum;
+			eye_position = param.eye_position;
+			eye_path     = param.eye_direction;
+		}
 	};
 
 	struct Gen_result

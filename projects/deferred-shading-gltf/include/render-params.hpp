@@ -23,8 +23,47 @@ struct Render_source
 
 struct Camera_parameter
 {
+	algorithm::geometry::frustum::Frustum frustum;
+
 	glm::mat4 view_matrix, projection_matrix, view_projection_matrix, view_projection_matrix_inv;
 	glm::vec3 eye_position, eye_direction;
+
+	Camera_parameter() = default;
+	Camera_parameter(
+		const algorithm::geometry::frustum::Frustum& frustum,
+		const glm::mat4&                             view,
+		const glm::mat4&                             projection,
+		const glm::vec3&                             eye_position,
+		const glm::vec3&                             eye_direction
+	) :
+		frustum(frustum),
+		view_matrix(view),
+		projection_matrix(projection),
+		view_projection_matrix(projection * view),
+		view_projection_matrix_inv(glm::inverse(view_projection_matrix)),
+		eye_position(eye_position),
+		eye_direction(eye_direction)
+	{
+	}
+};
+
+struct Shadow_parameter : public Camera_parameter
+{
+	glm::vec2 shadow_view_size;
+
+	Shadow_parameter() = default;
+	Shadow_parameter(
+		const algorithm::geometry::frustum::Frustum& frustum,
+		const glm::mat4&                             view,
+		const glm::mat4&                             projection,
+		const glm::vec3&                             eye_position,
+		const glm::vec3&                             eye_direction,
+		glm::vec2                                    shadow_view_size
+	) :
+		Camera_parameter(frustum, view, projection, eye_position, eye_direction),
+		shadow_view_size(shadow_view_size)
+	{
+	}
 };
 
 struct Render_params
@@ -63,9 +102,17 @@ struct Render_params
 
 	/*====== Generate ======*/
 
-	glm::vec3                               get_light_direction() const;
-	Camera_parameter                        get_gbuffer_parameter() const;
-	std::array<Camera_parameter, csm_count> get_shadow_parameters() const;
+	glm::vec3        get_light_direction() const;
+	Camera_parameter get_gbuffer_parameter(const Environment& env) const;
+
+	Shadow_parameter get_shadow_parameters(
+		float                   near,
+		float                   far,
+		float                   shadow_near,
+		float                   shadow_far,
+		const Camera_parameter& gbuffer_camera
+	) const;
+
 	std::array<glm::vec2, csm_count>        get_shadow_sizes() const;
 
 	struct Runtime_parameters

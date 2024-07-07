@@ -101,6 +101,6 @@ void Core::recreate_swapchain()
 	render_targets = Render_targets();
 
 	env.swapchain.create(env);
-	render_targets.create(env, Pipeline_set);
+	render_targets.create(env, pipeline_set);
 	ui_controller.create_imgui_rt(env);
 }

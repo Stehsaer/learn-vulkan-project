@@ -158,6 +158,8 @@ Drawcall_generator::Gen_result Drawcall_generator::generate_node(
 
 		result.near = std::min(near, result.near);
 		result.far  = std::max(far, result.far);
+		result.min_bounding = glm::min(min_coord, result.min_bounding);
+		result.max_bounding = glm::max(max_coord, result.max_bounding);
 
 		if (!edge_bounded || !bounding_box.intersect_or_forward(params.frustum.far)
 			|| !bounding_box.intersect_or_forward(params.frustum.near))

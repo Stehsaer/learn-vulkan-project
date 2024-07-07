@@ -22,7 +22,7 @@ struct Core
 	Environment env;
 
 	Render_targets render_targets;
-	Pipeline_set   Pipeline_set;
+	Pipeline_set   pipeline_set;
 	Ui_controller  ui_controller;
 
 	Render_source source;
@@ -41,8 +41,8 @@ struct Core
 		initialize_sdl();
 
 		env.create();
-		Pipeline_set.create(env);
-		render_targets.create(env, Pipeline_set);
+		pipeline_set.create(env);
+		render_targets.create(env, pipeline_set);
 		ui_controller.init_imgui(env);
 	}
 };

@@ -99,7 +99,12 @@ class Drawcall_generator
 
 	struct Gen_result
 	{
-		float    near = std::numeric_limits<float>::max(), far = -std::numeric_limits<float>::max();
+		// realtime near and far plane
+		float near = std::numeric_limits<float>::max(), far = -std::numeric_limits<float>::max();
+
+		// min and max value of bounding box
+		glm::vec3 min_bounding{std::numeric_limits<float>::max()}, max_bounding{-std::numeric_limits<float>::max()};
+
 		uint32_t object_count = 0;
 		size_t   vertex_count = 0;
 
@@ -108,6 +113,8 @@ class Drawcall_generator
 			*this
 				= {std::min(near, other.near),
 				   std::max(far, other.far),
+				   glm::min(min_bounding, other.min_bounding),
+				   glm::max(max_bounding, other.max_bounding),
 				   object_count + other.object_count,
 				   vertex_count + other.vertex_count};
 

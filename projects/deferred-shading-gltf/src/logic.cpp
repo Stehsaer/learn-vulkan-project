@@ -174,6 +174,9 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 		if (wait_fence_result != vk::Result::eSuccess) throw Exception("Fence wait timeout!");
 		core->env.device->resetFences({core->render_targets.next_frame_fence});
 
+		// Synchronize multiple threads
+		render_thread_barrier.arrive_and_wait();
+
 		// Submit Command Buffers
 		submit_commands();
 
@@ -217,7 +220,9 @@ void App_render_logic::submit_commands()
 
 	const auto lighting_signal_semaphore = Semaphore::to_array({lighting_semaphore});
 	const auto lighting_wait_semaphore   = Semaphore::to_array({gbuffer_semaphore, shadow_semaphore});
-	const auto lighting_wait_stages      = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
+	const auto lighting_wait_stages      = std::to_array<vk::PipelineStageFlags>(
+        {vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eColorAttachmentOutput}
+    );
 	const auto lighting_submit_buffers   = Command_buffer::to_array({current_lighting_command_buffer});
 	const auto lighting_submit_info      = vk::SubmitInfo()
 										  .setCommandBuffers(lighting_submit_buffers)
@@ -335,9 +340,6 @@ void App_render_logic::draw(uint32_t idx)
 
 	// Triggers sub-threads
 	frame_start_semaphore.release(csm_count + 2);
-
-	// Synchronize multiple threads
-	render_thread_barrier.arrive_and_wait();
 }
 
 void App_render_logic::shadow_thread_work(uint32_t csm_idx)
@@ -369,7 +371,7 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 
 			// Begin Shadow Renderpass
 			command_buffer.begin_render_pass(
-				core->Pipeline_set.shadow_pipeline.render_pass,
+				core->pipeline_set.shadow_pipeline.render_pass,
 				core->render_targets[current_idx].shadow_rt.shadow_framebuffers[csm_idx],
 				vk::Rect2D({0, 0}, {shadow_map_res[csm_idx], shadow_map_res[csm_idx]}),
 				{Shadow_pipeline::clear_value},
@@ -389,22 +391,22 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			// Bind Matrices
 			command_buffer.bind_descriptor_sets(
 				vk::PipelineBindPoint::eGraphics,
-				core->Pipeline_set.shadow_pipeline.pipeline_layout,
+				core->pipeline_set.shadow_pipeline.pipeline_layout,
 				0,
 				{core->render_targets[current_idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
 			);
 
-			auto bind_material = [=, this](auto drawcall)
+			auto bind_material = [=, this](Drawcall drawcall)
 			{
 				command_buffer.bind_descriptor_sets(
 					vk::PipelineBindPoint::eGraphics,
-					core->Pipeline_set.shadow_pipeline.pipeline_layout,
+					core->pipeline_set.shadow_pipeline.pipeline_layout,
 					1,
-					{core->source.model->materials[drawcall.primitive.material_idx].albedo_only_descriptor_set}
+					{core->source.material_data[drawcall.primitive.material_idx].albedo_only_descriptor_set}
 				);
 			};
 
-			auto bind_vertex = [=, this](auto drawcall)
+			auto bind_vertex = [=, this](Drawcall drawcall)
 			{
 				const auto& model     = *core->source.model;
 				const auto& primitive = drawcall.primitive;
@@ -416,7 +418,7 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 				);
 			};
 
-			auto bind_vertex_opaque = [=, this](auto drawcall)
+			auto bind_vertex_opaque = [=, this](Drawcall drawcall)
 			{
 				const auto& model     = *core->source.model;
 				const auto& primitive = drawcall.primitive;
@@ -440,8 +442,8 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 
 			const auto gen_result = generator.generate(gen_params);
 
-			float near = std::min((gen_result.near + gen_result.far) / 2.0f - 0.01f, gen_result.near);
-			float far  = std::max((gen_result.near + gen_result.far) / 2.0f + 0.01f, gen_result.far);
+			const float near = std::min((gen_result.near + gen_result.far) / 2.0f - 0.01f, gen_result.near);
+			const float far  = std::max((gen_result.near + gen_result.far) / 2.0f + 0.01f, gen_result.far);
 
 			core->params.shadow_far[csm_idx]  = far;
 			core->params.shadow_near[csm_idx] = near;
@@ -449,36 +451,15 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 			shadow_object_count += gen_result.object_count;
 			shadow_vertex_count += gen_result.vertex_count;
 
-			// auto draw_result = shadow_renderer[csm_idx].render_gltf(
-			// 	command_buffer,
-			// 	*core->source.model,
-			// 	draw_params.shadow_frustums[csm_idx],
-			// 	{0, 0, 0},
-			// 	-draw_params.light_dir,
-			// 	core->Pipeline_set.shadow_pipeline.single_sided_pipeline,
-			// 	core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
-			// 	core->Pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
-			// 	core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
-			// 	core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
-			// 	core->Pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
-			// 	core->Pipeline_set.shadow_pipeline.pipeline_layout,
-			// 	bind_descriptor,
-			// 	bind_vertex_opaque,
-			// 	bind_vertex,
-			// 	bind_vertex,
-			// 	animation_buffer,
-			// 	true
-			// );
-
 			const auto& single_sided = generator.get_single_sided_drawlist();
 			const auto& double_sided = generator.get_double_sided_drawlist();
 
 			const auto single_draw_params = Drawlist::Draw_params{
 				command_buffer,
-				core->Pipeline_set.shadow_pipeline.single_sided_pipeline,
-				core->Pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
-				core->Pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
-				core->Pipeline_set.shadow_pipeline.pipeline_layout,
+				core->pipeline_set.shadow_pipeline.single_sided_pipeline,
+				core->pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
+				core->pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
+				core->pipeline_set.shadow_pipeline.pipeline_layout,
 				bind_material,
 				bind_vertex_opaque,
 				bind_vertex,
@@ -487,10 +468,10 @@ void App_render_logic::shadow_thread_work(uint32_t csm_idx)
 
 			const auto double_draw_params = Drawlist::Draw_params{
 				command_buffer,
-				core->Pipeline_set.shadow_pipeline.double_sided_pipeline,
-				core->Pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
-				core->Pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
-				core->Pipeline_set.shadow_pipeline.pipeline_layout,
+				core->pipeline_set.shadow_pipeline.double_sided_pipeline,
+				core->pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
+				core->pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
+				core->pipeline_set.shadow_pipeline.pipeline_layout,
 				bind_material,
 				bind_vertex_opaque,
 				bind_vertex,
@@ -545,7 +526,7 @@ void App_render_logic::gbuffer_thread_work()
 		command_buffer.begin();
 		core->env.debug_marker.begin_region(command_buffer, "Render Gbuffer", {0.0, 1.0, 1.0, 1.0});
 		command_buffer.begin_render_pass(
-			core->Pipeline_set.gbuffer_pipeline.render_pass,
+			core->pipeline_set.gbuffer_pipeline.render_pass,
 			core->render_targets[current_idx].gbuffer_rt.framebuffer,
 			draw_extent,
 			Gbuffer_pipeline::clear_values
@@ -558,7 +539,7 @@ void App_render_logic::gbuffer_thread_work()
 
 			command_buffer.bind_descriptor_sets(
 				vk::PipelineBindPoint::eGraphics,
-				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+				core->pipeline_set.gbuffer_pipeline.pipeline_layout,
 				0,
 				{core->render_targets[current_idx].gbuffer_rt.camera_uniform_descriptor_set}
 			);
@@ -567,9 +548,9 @@ void App_render_logic::gbuffer_thread_work()
 			{
 				command_buffer.bind_descriptor_sets(
 					vk::PipelineBindPoint::eGraphics,
-					core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+					core->pipeline_set.gbuffer_pipeline.pipeline_layout,
 					1,
-					{core->source.model->materials[drawcall.primitive.material_idx].descriptor_set}
+					{core->source.material_data[drawcall.primitive.material_idx].descriptor_set}
 				);
 			};
 
@@ -602,7 +583,7 @@ void App_render_logic::gbuffer_thread_work()
 
 			const auto gen_result = generator.generate(gen_params);
 
-			float far  = std::max(0.02f, gen_result.far);
+			const float far  = std::max(0.02f, gen_result.far);
 			float near = std::max(0.01f, gen_result.near);
 			near       = std::min(near, far - 0.01f);
 			near       = std::max(near, far / 200);
@@ -612,16 +593,18 @@ void App_render_logic::gbuffer_thread_work()
 
 			gbuffer_object_count = gen_result.object_count;
 			gbuffer_vertex_count = gen_result.vertex_count;
+			scene_min_bound      = gen_result.min_bounding;
+			scene_max_bound      = gen_result.max_bounding;
 
 			const auto& single_sided = generator.get_single_sided_drawlist();
 			const auto& double_sided = generator.get_double_sided_drawlist();
 
 			const auto single_draw_params = Drawlist::Draw_params{
 				command_buffer,
-				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline,
-				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
-				core->Pipeline_set.gbuffer_pipeline.single_sided_pipeline_blend,
-				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+				core->pipeline_set.gbuffer_pipeline.single_sided_pipeline,
+				core->pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
+				core->pipeline_set.gbuffer_pipeline.single_sided_pipeline_blend,
+				core->pipeline_set.gbuffer_pipeline.pipeline_layout,
 				bind_material,
 				bind_vertex,
 				bind_vertex,
@@ -630,10 +613,10 @@ void App_render_logic::gbuffer_thread_work()
 
 			const auto double_draw_params = Drawlist::Draw_params{
 				command_buffer,
-				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline,
-				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
-				core->Pipeline_set.gbuffer_pipeline.double_sided_pipeline_blend,
-				core->Pipeline_set.gbuffer_pipeline.pipeline_layout,
+				core->pipeline_set.gbuffer_pipeline.double_sided_pipeline,
+				core->pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
+				core->pipeline_set.gbuffer_pipeline.double_sided_pipeline_blend,
+				core->pipeline_set.gbuffer_pipeline.pipeline_layout,
 				bind_material,
 				bind_vertex,
 				bind_vertex,
@@ -730,7 +713,7 @@ void App_render_logic::draw_lighting(uint32_t idx, const Command_buffer& command
 	// Lighting Pass
 	core->env.debug_marker.begin_region(command_buffer, "Render Lighting", {0.0, 0.0, 1.0, 1.0});
 	command_buffer.begin_render_pass(
-		core->Pipeline_set.lighting_pipeline.render_pass,
+		core->pipeline_set.lighting_pipeline.render_pass,
 		core->render_targets[idx].lighting_rt.framebuffer,
 		draw_extent,
 		{Lighting_pipeline::clear_value}
@@ -740,12 +723,12 @@ void App_render_logic::draw_lighting(uint32_t idx, const Command_buffer& command
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
-			core->Pipeline_set.lighting_pipeline.pipeline_layout,
+			core->pipeline_set.lighting_pipeline.pipeline_layout,
 			0,
 			{core->render_targets[idx].lighting_rt.input_descriptor_set, core->source.hdri->descriptor_set}
 		);
 
-		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, core->Pipeline_set.lighting_pipeline.pipeline);
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, core->pipeline_set.lighting_pipeline.pipeline);
 
 		command_buffer.draw(0, 4, 0, 1);
 	}
@@ -799,11 +782,14 @@ void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer&
 		);
 	}
 	{  // Dispatch Avg Calculation
-		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, core->Pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline);
+		command_buffer.bind_pipeline(
+			vk::PipelineBindPoint::eCompute,
+			core->pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline
+		);
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eCompute,
-			core->Pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline_layout,
+			core->pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline_layout,
 			0,
 			{core->render_targets.auto_exposure_rt.luminance_avg_descriptor_sets[idx]}
 		);
@@ -813,7 +799,12 @@ void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer&
 			Auto_exposure_compute_pipeline::max_luminance
 		};
 
-		command_buffer.push_constants(core->Pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline_layout, vk::ShaderStageFlagBits::eCompute, params, 0);
+		command_buffer.push_constants(
+			core->pipeline_set.auto_exposure_pipeline.luminance_avg_pipeline_layout,
+			vk::ShaderStageFlagBits::eCompute,
+			params,
+			0
+		);
 
 		const auto group_size = Auto_exposure_compute_pipeline::luminance_avg_workgroup_size;
 		command_buffer->dispatch(
@@ -836,11 +827,11 @@ void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer&
 		command_buffer->pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader, {}, {}, {barrier}, {});
 	}
 	{  // Dispatch Exposure Lerp
-		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, core->Pipeline_set.auto_exposure_pipeline.lerp_pipeline);
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, core->pipeline_set.auto_exposure_pipeline.lerp_pipeline);
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eCompute,
-			core->Pipeline_set.auto_exposure_pipeline.lerp_pipeline_layout,
+			core->pipeline_set.auto_exposure_pipeline.lerp_pipeline_layout,
 			0,
 			{core->render_targets.auto_exposure_rt.lerp_descriptor_set}
 		);
@@ -853,7 +844,12 @@ void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer&
 		params.texture_size_x = core->env.swapchain.extent.width;
 		params.texture_size_y = core->env.swapchain.extent.height;
 
-		command_buffer.push_constants(core->Pipeline_set.auto_exposure_pipeline.lerp_pipeline_layout, vk::ShaderStageFlagBits::eCompute, params, 0);
+		command_buffer.push_constants(
+			core->pipeline_set.auto_exposure_pipeline.lerp_pipeline_layout,
+			vk::ShaderStageFlagBits::eCompute,
+			params,
+			0
+		);
 
 		command_buffer->dispatch(1, 1, 1);
 	}
@@ -878,7 +874,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 	const auto  g_queue_family = core->env.g_family_idx, c_queue_family = core->env.c_family_idx;
 
 	const auto& rt        = core->render_targets[idx];
-	const auto& pipeline  = core->Pipeline_set;
+	const auto& pipeline  = core->pipeline_set;
 	const auto& swapchain = core->env.swapchain;
 
 	core->env.debug_marker.begin_region(command_buffer, "Compute Bloom", {1.0, 0.0, 0.0, 1.0});
@@ -1141,7 +1137,7 @@ void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& comman
 
 	core->env.debug_marker.begin_region(command_buffer, "Render Composite", {0.0, 0.2, 1.0, 1.0});
 	command_buffer.begin_render_pass(
-		core->Pipeline_set.composite_pipeline.render_pass,
+		core->pipeline_set.composite_pipeline.render_pass,
 		core->render_targets[idx].composite_rt.framebuffer,
 		draw_extent,
 		{Composite_pipeline::clear_value}
@@ -1151,12 +1147,12 @@ void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& comman
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
-			core->Pipeline_set.composite_pipeline.pipeline_layout,
+			core->pipeline_set.composite_pipeline.pipeline_layout,
 			0,
 			{core->render_targets[idx].composite_rt.descriptor_set}
 		);
 
-		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, core->Pipeline_set.composite_pipeline.pipeline);
+		command_buffer.bind_pipeline(vk::PipelineBindPoint::eGraphics, core->pipeline_set.composite_pipeline.pipeline);
 		command_buffer.draw(0, 4, 0, 1);
 	}
 	command_buffer.end_render_pass();
@@ -1189,68 +1185,77 @@ void App_render_logic::control_tab()
 {
 	auto& params = core->params;
 
+	// center camera view
+	if (ImGui::Button("Center Camera View"))
+		core->params.camera_controller.target_eye_center = (scene_min_bound + scene_max_bound) / 2.0f;
+
 	ImGui::SeparatorText("Lighting");
 	{
-		ImGui::ColorEdit3("Light Color", &params.light_color.x, ImGuiColorEditFlags_DisplayHSV);
-		ImGui::SliderFloat(
-			"Light Intensity",
-			&params.light_intensity,
-			0.0,
-			10000.0,
-			"%.3f nits",
-			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-		);
-		ImGui::SliderFloat("Light Height", &params.sunlight_pitch, 0, 90, "%.1fdeg");
-		ImGui::SliderFloat("Light Direction", &params.sunlight_yaw, 0, 360, "%.1fdeg");
+		{
+			ImGui::ColorEdit3("Light Color", &params.light_color.x, ImGuiColorEditFlags_DisplayHSV);
+			ImGui::SliderFloat(
+				"Light Intensity",
+				&params.light_intensity,
+				0.0,
+				10000.0,
+				"%.3f nits",
+				ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+			);
+			ImGui::SliderFloat("Light Height", &params.sunlight_pitch, 0, 90, "%.1fdeg");
+			ImGui::SliderFloat("Light Direction", &params.sunlight_yaw, 0, 360, "%.1fdeg");
+		}
+		ImGui::Separator();
+		{
+			ImGui::SliderFloat(
+				"Emissive Brightness",
+				&params.emissive_brightness,
+				0.001,
+				10000,
+				"%.3f nits",
+				ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+			);
+			ImGui::SliderFloat(
+				"Skybox Brightness",
+				&params.skybox_brightness,
+				0.001,
+				10000,
+				"%.3f nits",
+				ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+			);
+		}
+		ImGui::Separator();
+		{
+			ImGui::SliderFloat(
+				"Bloom Intensity",
+				&params.bloom_intensity,
+				0.001,
+				10,
+				"%.3fx",
+				ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+			);
 
-		ImGui::SliderFloat("Exposure", &params.exposure_ev, -6, 6, "%.1fEV");
+			ImGui::SliderFloat(
+				"Bloom Start",
+				&params.bloom_start,
+				0.2,
+				params.bloom_end,
+				"%.2fx",
+				ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+			);
 
-		ImGui::SliderFloat(
-			"Emissive Brightness",
-			&params.emissive_brightness,
-			0.001,
-			10000,
-			"%.3f nits",
-			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-		);
+			ImGui::SliderFloat(
+				"Bloom End",
+				&params.bloom_end,
+				params.bloom_start,
+				100,
+				"%.2fx",
+				ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
+			);
+		}
 
-		ImGui::SliderFloat(
-			"Skybox Brightness",
-			&params.skybox_brightness,
-			0.001,
-			10000,
-			"%.3f nits",
-			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-		);
-
-		ImGui::SliderFloat(
-			"Bloom Intensity",
-			&params.bloom_intensity,
-			0.001,
-			10,
-			"%.3fx",
-			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-		);
-
-		ImGui::SliderFloat(
-			"Bloom Start",
-			&params.bloom_start,
-			0.2,
-			params.bloom_end,
-			"%.2fx",
-			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-		);
-
-		ImGui::SliderFloat(
-			"Bloom End",
-			&params.bloom_end,
-			params.bloom_start,
-			100,
-			"%.2fx",
-			ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
-		);
-
+		ImGui::Separator();
 		ImGui::SliderFloat("Adapt Speed", &params.adapt_speed, 0.01, 5, "%.2fx");
+		ImGui::SliderFloat("Exposure", &params.exposure_ev, -6, 6, "%.1fEV");
 	}
 
 	ImGui::SeparatorText("Camera");
@@ -1462,6 +1467,58 @@ void App_render_logic::animation_tab()
 
 #pragma region "App Load Model Logic"
 
+void App_load_model_logic::load_thread_work()
+{
+	core->env.log_msg("Loading model from \"{}\"...", load_path);
+	core->source.model = std::make_shared<io::mesh::gltf::Model>();  // create new
+
+	// Loader Context
+	io::mesh::gltf::Loader_context loader_context;
+
+	loader_context.allocator               = core->env.allocator;
+	loader_context.command_pool            = Command_pool(core->env.device, core->env.g_family_idx);
+	loader_context.device                  = core->env.device;
+	loader_context.transfer_queue          = core->env.t_queue;
+	loader_context.physical_device         = core->env.physical_device;
+	loader_context.load_stage              = &load_stage;
+	loader_context.sub_progress            = &sub_progress;
+	loader_context.config.enable_anistropy = core->env.features.anistropy_enabled;
+	loader_context.config.max_anistropy    = std::min(8.0f, core->env.features.max_anistropy);
+
+	const auto extension = std::filesystem::path(load_path).extension();
+
+	try
+	{
+		if (load_path == LOAD_DEFAULT_MODEL_TOKEN)
+		{
+			core->source.model->load_gltf_memory(
+				loader_context,
+				std::span((uint8_t*)binary_resource::damaged_helmet_data, binary_resource::damaged_helmet_size)
+			);
+		}
+		else
+		{
+			if (extension == ".gltf")
+				core->source.model->load_gltf_ascii(loader_context, load_path);
+			else
+				core->source.model->load_gltf_bin(loader_context, load_path);
+		}
+
+		core->source.generate_material_data(core->env, core->pipeline_set);
+
+		core->env.log_msg("Loaded model");
+	}
+	catch (const Exception& e)
+	{
+		load_err_msg       = e.msg;
+		load_stage         = io::mesh::gltf::Load_stage::Error;
+		core->source.model = nullptr;
+
+		core->env.log_err("Load model failed, reason: {}", e.msg);
+		return;
+	}
+}
+
 std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 {
 	SDL_EventState(SDL_DROPBEGIN, SDL_DISABLE);
@@ -1469,62 +1526,12 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 	SDL_EventState(SDL_DROPTEXT, SDL_DISABLE);
 	SDL_EventState(SDL_DROPCOMPLETE, SDL_DISABLE);
 
-	// Start load thread
-	auto load_work = [this]
-	{
-		core->env.log_msg("Loading model from \"{}\"...", load_path);
-		core->source.model = std::make_shared<io::mesh::gltf::Model>();  // create new
-
-		// Loader Context
-		io::mesh::gltf::Loader_context loader_context;
-
-		loader_context.allocator                     = core->env.allocator;
-		loader_context.command_pool                  = Command_pool(core->env.device, core->env.g_family_idx);
-		loader_context.device                        = core->env.device;
-		loader_context.transfer_queue                = core->env.t_queue;
-		loader_context.physical_device               = core->env.physical_device;
-		loader_context.texture_descriptor_set_layout = core->Pipeline_set.gbuffer_pipeline.descriptor_set_layout_texture;
-		loader_context.albedo_only_layout            = core->Pipeline_set.shadow_pipeline.descriptor_set_layout_texture;
-
-		loader_context.load_stage   = &load_stage;
-		loader_context.sub_progress = &sub_progress;
-
-		loader_context.config.enable_anistropy = core->env.features.anistropy_enabled;
-		loader_context.config.max_anistropy    = std::min(8.0f, core->env.features.max_anistropy);
-
-		const auto extension = std::filesystem::path(load_path).extension();
-
-		try
+	load_thread = std::jthread(
+		[this]
 		{
-			if (load_path == LOAD_DEFAULT_MODEL_TOKEN)
-			{
-				core->source.model->load_gltf_memory(
-					loader_context,
-					std::span((uint8_t*)binary_resource::damaged_helmet_data, binary_resource::damaged_helmet_size)
-				);
-			}
-			else
-			{
-				if (extension == ".gltf")
-					core->source.model->load_gltf_ascii(loader_context, load_path);
-				else
-					core->source.model->load_gltf_bin(loader_context, load_path);
-			}
-
-			core->env.log_msg("Loaded model");
+			this->load_thread_work();
 		}
-		catch (const Exception& e)
-		{
-			load_err_msg       = e.msg;
-			load_stage         = io::mesh::gltf::Load_stage::Error;
-			core->source.model = nullptr;
-
-			core->env.log_err("Load model failed, reason: {}", e.msg);
-			return;
-		}
-	};
-
-	load_thread = std::jthread(load_work);
+	);
 
 	while (true)
 	{
@@ -1706,7 +1713,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 			{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
 		);
 
-		core->source.hdri->generate(core->env, hdri_view, 1024, core->Pipeline_set.lighting_pipeline.skybox_input_layout);
+		core->source.hdri->generate(core->env, hdri_view, 1024, core->pipeline_set.lighting_pipeline.skybox_input_layout);
 
 		load_state = Load_state::Load_success;
 		core->env.log_msg("Loaded HDRi");

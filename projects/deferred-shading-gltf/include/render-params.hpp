@@ -2,11 +2,29 @@
 #include "controller.hpp"
 #include "environment.hpp"
 #include "hdri.hpp"
+#include "pipeline.hpp"
 
 struct Render_source
 {
 	std::shared_ptr<io::mesh::gltf::Model> model;
 	std::shared_ptr<Hdri_resource>         hdri;
+
+	struct Material_data
+	{
+		Descriptor_set descriptor_set, albedo_only_descriptor_set;
+	};
+
+	Descriptor_pool            descriptor_pool;
+	std::vector<Material_data> material_data;
+	Buffer                     material_uniform_buffer;
+
+	void generate_material_data(const Environment& env, const Pipeline_set& pipeline);
+};
+
+struct Camera_parameter
+{
+	glm::mat4 view_matrix, projection_matrix, view_projection_matrix, view_projection_matrix_inv;
+	glm::vec3 eye_position, eye_direction;
 };
 
 struct Render_params
@@ -24,7 +42,7 @@ struct Render_params
 	float emissive_brightness = 1;
 	float skybox_brightness   = 1;
 
-	float bloom_start = 5.0, bloom_end = 25.0, bloom_intensity = 0.02;
+	float bloom_start = 2.0, bloom_end = 15.0, bloom_intensity = 0.02;
 	float adapt_speed = 1;
 
 	/*====== Shadow ======*/
@@ -43,19 +61,12 @@ struct Render_params
 	glm::float32 light_intensity = 20;
 	float        sunlight_yaw = 0, sunlight_pitch = 45;
 
-	inline glm::vec3 get_sunlight_direction() const
-	{
-		auto mat = glm::rotate(
-			glm::rotate(glm::mat4(1.0), glm::radians<float>(sunlight_yaw), glm::vec3(0, 1, 0)),
-			glm::radians<float>(sunlight_pitch),
-			glm::vec3(0, 0, 1)
-		);
+	/*====== Generate ======*/
 
-		auto light = mat * glm::vec4(1, 0, 0, 0);
-		return glm::normalize(glm::vec3(light));
-	}
-
-	/*====== Draw Parameters ======*/
+	glm::vec3                               get_light_direction() const;
+	Camera_parameter                        get_gbuffer_parameter() const;
+	std::array<Camera_parameter, csm_count> get_shadow_parameters() const;
+	std::array<glm::vec2, csm_count>        get_shadow_sizes() const;
 
 	struct Runtime_parameters
 	{

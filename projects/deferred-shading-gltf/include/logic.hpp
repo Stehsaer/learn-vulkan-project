@@ -33,6 +33,7 @@ class App_render_logic : public Application_logic_base
 
 	std::atomic<double>   gbuffer_cpu_time, shadow_cpu_time;
 	std::atomic<uint32_t> gbuffer_object_count, shadow_object_count, gbuffer_vertex_count, shadow_vertex_count;
+	glm::vec3             scene_min_bound{0.0}, scene_max_bound{0.0};
 
 	/* Render */
 
@@ -172,6 +173,7 @@ class App_load_model_logic : public Application_logic_base
 
 	void draw(uint32_t idx);
 	void ui_logic();
+	void load_thread_work();
 };
 
 class App_load_hdri_logic : public Application_logic_base

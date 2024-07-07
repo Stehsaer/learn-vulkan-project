@@ -21,7 +21,8 @@ function(compile_shader dependent target variable_name)
 	set(shader_cpp ${CMAKE_CURRENT_BINARY_DIR}/${target}.cpp)
 	add_custom_command(
 		OUTPUT ${shader_dst}
-		COMMAND glslangValidator --target-env vulkan1.1 -g -V ${shader_src} -o ${shader_dst}
+		COMMAND glslangValidator --target-env vulkan1.1
+		-V ${shader_src} -o ${shader_dst}
 		DEPENDS ${shader_src}
 		COMMENT "Compiling shader ${target}"
 	)

@@ -69,8 +69,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		Vma_allocator         allocator;
 		Device                device;
 		Physical_device       physical_device;
-		Descriptor_set_layout texture_descriptor_set_layout;
-		Descriptor_set_layout albedo_only_layout;
 		Fence                 fence;
 
 		Loader_config config;
@@ -125,12 +123,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			const vk::ComponentMapping& components = {}
 		);
 
-		vk::DescriptorImageInfo descriptor_info() const
+		vk::DescriptorImageInfo descriptor_info(vk::ImageLayout layout = vk::ImageLayout::eShaderReadOnlyOptimal) const
 		{
-			return vk::DescriptorImageInfo()
-				.setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-				.setSampler(sampler)
-				.setImageView(view);
+			return vk::DescriptorImageInfo().setImageLayout(layout).setSampler(sampler).setImageView(view);
 		}
 	};
 
@@ -157,9 +152,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			alignas(16) glm::vec3 emissive_strength;
 			alignas(4) float alpha_cutoff;
 		} params;
-
-		Descriptor_set descriptor_set, albedo_only_descriptor_set;
-		Buffer         uniform_buffer;
 	};
 
 	using vertex = io::mesh::Mesh_vertex;
@@ -388,8 +380,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		void load_all_animations(const tinygltf::Model& model);
 
 		void generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context);
-
-		void create_descriptor_pool(const Loader_context& context);
 
 		Primitive parse_primitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, Mesh_data_context& mesh_context);
 	};

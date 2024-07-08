@@ -28,7 +28,7 @@ void main()
 	vec4 image_val = imageLoad(luminance_in, global_id) * params.exposure;
 
 	bvec4 nan = isnan(image_val), inf = isinf(image_val);
-	if(nan.x || nan.y || nan.z || nan.w || inf.x || inf.y || inf.z || inf.w) image_val = vec4(0.0);
+	if(any(nan) || any(inf)) image_val = vec4(0.0);
 
 	float rel_brightness = image_val.a / (exp2(luminance_data.luminance) * 9.6);
 

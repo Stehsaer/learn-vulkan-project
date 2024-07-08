@@ -75,7 +75,7 @@ class Environment
 	void log_err(const std::format_string<T...> fmt, T&&... args) const
 	{
 		auto now = std::chrono::system_clock::now();
-		std::cerr << std::format("\033[1;[{:%H:%M:%S} - ERR] ", now) << std::format(fmt, args...) << "\033[0m" << std::endl;
+		std::cerr << std::format("[\033[1;[{:%H:%M:%S} - ERR] ", now) << std::format(fmt, args...) << "\033[0m" << std::endl;
 	}
 
   private:

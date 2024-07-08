@@ -26,6 +26,7 @@ layout(std140, set = 0, binding = 6) uniform Params {
 
 	float emissive_brightness;
 	float skybox_brightness;
+	float time;
 } params;
 
 /* SET 1: Skybox & IBL */
@@ -43,9 +44,9 @@ const vec3 rgb_brightness_coeff = vec3(0.21, 0.72, 0.07);
 const float min_log_luminance = -10, max_log_luminance = 14;
 
 vec2 poisson_disk[4] = vec2[](
-	vec2(-1,-2),
+	vec2(-1,-0.5),
 	vec2(-1, 1),
-	vec2( 1,-1),
+	vec2( 0.5,-0.5),
 	vec2( 1, 1)
 );
 
@@ -72,6 +73,15 @@ float random(in vec2 co)
     return fract(sin(sn) * c);
 }
 
+// GLSL Pseudo-random number generator for vec3 input
+float pseudoRandom(vec3 seed) {
+    // Constants are chosen arbitrarily to ensure randomness
+    vec3 dot_vector = vec3(12.9898, 78.233, 45.164);
+    float random = dot(seed, dot_vector);
+    float sin_random = sin(random) * 43758.5453;
+    return fract(sin_random);
+}
+
 float get_shadow(in vec3 position)
 {
 	int index = 0; vec4 shadow_coord;
@@ -92,7 +102,7 @@ float get_shadow(in vec3 position)
 	vec2 shadow_uv = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
 	float depth = shadow_coord.z;
 
-	float rotate_offset = random(shadow_uv * 100) * PI * 2;
+	float rotate_offset = pseudoRandom(vec3(shadow_uv.xy, params.time) * 100) * PI * 2;
 	vec2 sample_delta = params.shadow_sizes[index].xy;
 
 	float shadow_accumulate = sample_shadowmap(index, shadow_uv, depth);
@@ -101,7 +111,7 @@ float get_shadow(in vec3 position)
 // #pragma unroll_loop_start
 	for(int i = 0; i < 4; i++)
 	{
-		vec2 uv = shadow_uv + rotate(poisson_disk[i] * sample_delta, rotate_offset + i * PI / 6.0);
+		vec2 uv = shadow_uv + rotate(poisson_disk[i] * sample_delta, rotate_offset + i * PI / 8.0);
 		if(uv.x > 1.0 || uv.x < 0.0 || uv.y > 1.0 || uv.y < 0.0) continue;
 
 		shadow_accumulate += sample_shadowmap(index, uv, depth);

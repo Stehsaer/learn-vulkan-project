@@ -9,6 +9,8 @@ struct Render_source
 	std::shared_ptr<io::mesh::gltf::Model> model;
 	std::shared_ptr<Hdri_resource>         hdri;
 
+	std::string model_path, hdri_path;
+
 	struct Material_data
 	{
 		Descriptor_set descriptor_set, albedo_only_descriptor_set;
@@ -66,6 +68,12 @@ struct Shadow_parameter : public Camera_parameter
 	}
 };
 
+struct Directional_light
+{
+	glm::vec3 color;
+	float     intensity, yaw, pitch;
+};
+
 struct Render_params
 {
 	/*====== Cameras ======*/
@@ -96,9 +104,12 @@ struct Render_params
 
 	/*====== Light Source ======*/
 
-	glm::vec3    light_color     = glm::vec3(1.0);
-	glm::float32 light_intensity = 20;
-	float        sunlight_yaw = 0, sunlight_pitch = 45;
+	Directional_light sun{
+		{1.0, 1.0, 1.0},
+		25.0,
+		30.0,
+		45.0
+	};
 
 	/*====== Generate ======*/
 
@@ -113,26 +124,10 @@ struct Render_params
 		const Camera_parameter& gbuffer_camera
 	) const;
 
-	std::array<glm::vec2, csm_count>        get_shadow_sizes() const;
+	std::array<glm::vec2, csm_count> get_shadow_sizes() const;
 
-	struct Runtime_parameters
+	inline float divide_projection_plane(float alpha) const
 	{
-		using Frustum = algorithm::geometry::frustum::Frustum;
-
-		// Transformations
-		glm::mat4                                          view_projection;
-		std::array<glm::mat4, csm_count>                   shadow_transformations;
-
-		// Frustums
-		Frustum                        gbuffer_frustum;
-		std::array<Frustum, csm_count> shadow_frustums;
-
-		// Sizes
-		std::array<glm::vec2, csm_count> shadow_view_sizes;
-
-		glm::vec3 light_dir, light_color;  // Directional Light
-		glm::vec3 eye_position, eye_path;  // Eye
-	};
-
-	Runtime_parameters gen_runtime_parameters(const Environment& env) const;
+		return glm::mix(glm::mix(near, far, alpha), near * glm::pow(far / near, alpha), csm_blend_factor);
+	}
 };

@@ -91,6 +91,7 @@ struct Lighting_pipeline
 		alignas(16) glm::vec3 sunlight_color;
 		alignas(4) float emissive_brightness = 1;
 		alignas(4) float skybox_brightness   = 1;
+		alignas(4) float time                = 0;
 	};
 
 	// Layouts

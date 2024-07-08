@@ -1,16 +1,15 @@
 #pragma once
 
 #include "core.hpp"
-#include <barrier>
-#include <condition_variable>
-#include <semaphore>
-#include <shared_mutex>
+#include <nlohmann/json.hpp>
+#include <utility>
+
+#define LOAD_DEFAULT_MODEL_TOKEN "**cmd-load-built-in--model**"
+#define LOAD_DEFUALT_HDRI_TOKEN "**cmd-load-built-in--hdri**"
 
 class Application_logic_base
 {
   protected:
-
-	std::shared_ptr<Core> core;
 
 	Application_logic_base(std::shared_ptr<Core> core) :
 		core(std::move(core))
@@ -19,15 +18,61 @@ class Application_logic_base
 
   public:
 
+	std::shared_ptr<Core> core;
+
 	virtual ~Application_logic_base() { core->env.device->waitIdle(); }
 
 	// Virtual work function, returns nullptr when terminating
 	virtual std::shared_ptr<Application_logic_base> work() = 0;
 };
 
+// Preset for debugging, essential for debugging in same scenes
+struct Scene_preset
+{
+	/* Path */
+
+	std::string hdri_path, model_path;
+
+	/* Camera */
+
+	float     camera_yaw, camera_pitch, camera_log_distance, camera_fov;  // angles in degrees
+	glm::vec3 camera_eye_center;
+
+	/* Parameters */
+
+	float exposure_ev;
+	float emissive_brightness;
+	float skybox_brightness;
+
+	float bloom_start, bloom_end, bloom_intensity;
+	float adapt_speed;
+	float csm_blend_factor;
+	float fov;
+
+	glm::vec3 light_color;
+	float     light_intensity;
+	float     sunlight_yaw, sunlight_pitch;
+
+	void collect(const Application_logic_base& src);
+	void collect(const Render_params& src);
+
+	nlohmann::json serialize() const;
+
+	void deserialize(const nlohmann::json& json);
+
+	void assign(Application_logic_base& dst) const;
+	void assign(Render_params& dst) const;
+};
+
 class App_render_logic : public Application_logic_base
 {
   private:
+
+	/* Load Logic */
+	std::string deserialize_buffer, deserialize_error_msg;
+
+	Scene_preset load_preset_src;
+	bool         load_preset = false, load_default_hdri = false, load_default_model = false;
 
 	/* Statistics */
 
@@ -35,7 +80,7 @@ class App_render_logic : public Application_logic_base
 	uint32_t  gbuffer_object_count, shadow_object_count, gbuffer_vertex_count, shadow_vertex_count;
 	glm::vec3 scene_min_bound{0.0}, scene_max_bound{0.0};
 
-	/* Render */
+	/* Generator */
 
 	Drawcall_generator                        gbuffer_generator;
 	std::array<Drawcall_generator, csm_count> shadow_generator;
@@ -57,12 +102,13 @@ class App_render_logic : public Application_logic_base
 
 	/* Draw Logic */
 
+	// Draw
 	void draw(uint32_t idx);
 
-	void draw_gbuffer(uint32_t idx, const Command_buffer& command_buffer);
-
+	void generate_drawcalls(uint32_t idx);
 	void update_uniforms(uint32_t idx);
 
+	void draw_gbuffer(uint32_t idx, const Command_buffer& command_buffer);
 	void draw_shadow(uint32_t idx, const Command_buffer& command_buffer);
 	void draw_lighting(uint32_t idx, const Command_buffer& command_buffer);
 
@@ -73,16 +119,18 @@ class App_render_logic : public Application_logic_base
 	void draw_composite(uint32_t idx, const Command_buffer& command_buffer);
 	void draw_swapchain(uint32_t idx, const Command_buffer& command_buffer);
 
+	// Submit commands to queues
 	void submit_commands(const Command_buffer_set& set);
 
 	/* UI-related */
 
-	void ui_logic();
+	void ui_logic();  // All ui logic goes here
 
-	void stat_panel();
-	void control_tab();
-	void system_tab();
-	void animation_tab();
+	void stat_panel();     // Real-time stats panel
+	void control_tab();    // Control panel
+	void system_tab();     // System panel
+	void animation_tab();  // Animation panel, only activate if animation present
+	void preset_tab();     // Debug panel
 
 	bool show_panel = true;
 
@@ -93,33 +141,17 @@ class App_render_logic : public Application_logic_base
 	float  animation_time = 0.0, animation_rate = 1.0;
 	double animation_start_time = 0.0;
 
-	void update_animation();
+	void update_animation();  // Update animation
+
+	std::string exported_preset_json;
 
   public:
 
 	virtual ~App_render_logic() { core->env.device->waitIdle(); }
 
-	App_render_logic(std::shared_ptr<Core> resource) :
-		Application_logic_base(std::move(resource))
-	{
-		// Create semaphores
-		gbuffer_semaphore   = Semaphore(core->env.device);
-		shadow_semaphore    = Semaphore(core->env.device);
-		composite_semaphore = Semaphore(core->env.device);
-		compute_semaphore   = Semaphore(core->env.device);
-		lighting_semaphore  = Semaphore(core->env.device);
+	App_render_logic(std::shared_ptr<Core> resource);
 
-		// Create command buffers
-		command_buffers.resize(core->env.swapchain.image_count);
-		for (auto& command_buffer : command_buffers)
-		{
-			command_buffer.shadow_command_buffer    = Command_buffer(core->env.command_pool);
-			command_buffer.gbuffer_command_buffer   = Command_buffer(core->env.command_pool),
-			command_buffer.lighting_command_buffer  = Command_buffer(core->env.command_pool),
-			command_buffer.compute_command_buffer   = Command_buffer(core->env.command_pool),
-			command_buffer.composite_command_buffer = Command_buffer(core->env.command_pool);
-		}
-	}
+	App_render_logic(std::shared_ptr<Core> resource, const Scene_preset& preset);
 
 	virtual std::shared_ptr<Application_logic_base> work();
 };
@@ -128,7 +160,10 @@ class App_idle_logic : public Application_logic_base
 {
   private:
 
-	bool load_builtin_model = false, load_builtin_hdri = false;
+	bool load_builtin_model = false, load_builtin_hdri = false, load_preset = false;
+
+	Scene_preset preset;
+	std::string  deserialize_error_msg, deserialize_buffer;
 
   public:
 
@@ -149,6 +184,8 @@ class App_load_model_logic : public Application_logic_base
 {
   private:
 
+	std::optional<Scene_preset> preset = std::nullopt;
+
 	std::string  load_path;
 	std::jthread load_thread;
 
@@ -167,6 +204,13 @@ class App_load_model_logic : public Application_logic_base
 	{
 	}
 
+	App_load_model_logic(std::shared_ptr<Core> resource, Scene_preset&& preset) :
+		Application_logic_base(std::move(resource)),
+		preset(std::move(preset)),
+		load_path(this->preset.value().model_path)
+	{
+	}
+
 	virtual std::shared_ptr<Application_logic_base> work();
 
 	void draw(uint32_t idx);
@@ -177,6 +221,8 @@ class App_load_model_logic : public Application_logic_base
 class App_load_hdri_logic : public Application_logic_base
 {
   private:
+
+	std::optional<Scene_preset> preset = std::nullopt;
 
 	enum class Load_state
 	{
@@ -195,6 +241,13 @@ class App_load_hdri_logic : public Application_logic_base
 	App_load_hdri_logic(std::shared_ptr<Core> resource, std::string load_path) :
 		Application_logic_base(std::move(resource)),
 		load_path(std::move(load_path))
+	{
+	}
+
+	App_load_hdri_logic(std::shared_ptr<Core> resource, Scene_preset&& preset) :
+		Application_logic_base(std::move(resource)),
+		preset(std::move(preset)),
+		load_path(this->preset.value().hdri_path)
 	{
 	}
 

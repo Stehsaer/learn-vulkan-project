@@ -11,8 +11,10 @@ void Render_source::generate_material_data(const Environment& env, const Pipelin
 
 	// Alignment calculation
 	const auto min_alignment = env.physical_device.getProperties().limits.minUniformBufferOffsetAlignment;
-	const auto element_size
-		= sizeof(io::mesh::gltf::Material::Mat_params) + min_alignment - sizeof(io::mesh::gltf::Material::Mat_params) % min_alignment;
+	const auto element_size  = sizeof(io::mesh::gltf::Material::Mat_params) % min_alignment == 0
+								 ? sizeof(io::mesh::gltf::Material::Mat_params)
+								 : sizeof(io::mesh::gltf::Material::Mat_params) + min_alignment
+                                      - sizeof(io::mesh::gltf::Material::Mat_params) % min_alignment;
 
 	//* Create Descriptor Pool.
 	// Gbuffer set: 5 Combined + 1 Uniform;

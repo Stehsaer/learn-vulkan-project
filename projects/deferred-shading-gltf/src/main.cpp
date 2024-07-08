@@ -33,12 +33,12 @@ const char* cut_filename(const char* filename)
 
 int main(int argc [[maybe_unused]], char** argv [[maybe_unused]])
 {
-	// std::signal(SIGSEGV, sig_handler_sigsev);
-	// std::signal(SIGFPE, sig_handler_fpe);
+	std::signal(SIGSEGV, sig_handler_sigsev);
+	std::signal(SIGFPE, sig_handler_fpe);
 
 	std::shared_ptr<Core> shared_resource;
 
-	auto show_error_msgbox = [](const std::string& title, const std::string& content, const std::shared_ptr<Core>& shared_resource)
+	auto show_error_msgbox = [shared_resource](const std::string& title, const std::string& content)
 	{
 		if (shared_resource)
 			if (shared_resource->env.window.is_valid())
@@ -69,33 +69,38 @@ int main(int argc [[maybe_unused]], char** argv [[maybe_unused]])
 
 		show_error_msgbox(
 			"Error",
-			std::format("Error caught:\n[Line {} at {}]\n{}", err.loc.line(), cut_filename(err.loc.file_name()), err.msg),
-			shared_resource
+			std::format("Error caught:\n[Line {} at {}]\n{}", err.loc.line(), cut_filename(err.loc.file_name()), err.msg)
 		);
 	}
 	catch (const vk::IncompatibleDriverError& err)
 	{
 		std::cerr << "Incompatible Driver!" << '\n';
 
-		show_error_msgbox("Incompatible Driver", std::format("Incompatible Driver:\n{}", err.what()), shared_resource);
+		show_error_msgbox("Incompatible Driver", std::format("Incompatible Driver:\n{}", err.what()));
 	}
 	catch (const vk::DeviceLostError& err)
 	{
 		std::cerr << "Device Lost!" << '\n';
 
-		show_error_msgbox("Device Lost", std::format("Vulkan Device Lost:\n{}", err.what()), shared_resource);
+		show_error_msgbox("Device Lost", std::format("Vulkan Device Lost:\n{}", err.what()));
 	}
 	catch (const vk::SystemError& err)
 	{
 		std::cerr << "Vulkan Error: " << err.what() << '\n';
 
-		show_error_msgbox("Vulkan Error", std::format("Vulkan Error caught:\n{}", err.what()), shared_resource);
+		show_error_msgbox("Vulkan Error", std::format("Vulkan Error caught:\n{}", err.what()));
 	}
 	catch (const std::exception& err)
 	{
 		std::cerr << "Unknown Error: " << err.what() << '\n';
 
-		show_error_msgbox("Unknown Error", std::format("Unknown caught:\n{}", err.what()), shared_resource);
+		show_error_msgbox("Unknown Error", std::format("Unknown caught:\n{}", err.what()));
+	}
+	catch (...)
+	{
+		std::cerr << "Unknown Error!\n";
+
+		show_error_msgbox("Unknown Error", "Unknown Error, no information available!");
 	}
 
 #if !NDEBUG

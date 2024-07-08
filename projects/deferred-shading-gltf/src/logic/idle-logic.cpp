@@ -33,6 +33,21 @@ std::shared_ptr<Application_logic_base> App_idle_logic::work()
 				if (extension == ".gltf" || extension == ".glb") return std::make_shared<App_load_model_logic>(core, file_path_str);
 
 				if (extension == ".hdr") return std::make_shared<App_load_hdri_logic>(core, file_path_str);
+
+				if (extension == ".json")
+				{
+					try
+					{
+						const auto content = io::read_string(file_path_str);
+						const auto json    = nlohmann::json::parse(content);
+						preset.deserialize(json);
+						return std::make_shared<App_load_model_logic>(core, std::move(preset));
+					}
+					catch (...)
+					{
+						continue;
+					}
+				}
 			}
 
 			if (load_builtin_model) return std::make_shared<App_load_model_logic>(core, LOAD_DEFAULT_MODEL_TOKEN);

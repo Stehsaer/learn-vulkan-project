@@ -465,17 +465,52 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 	}
 
-	void Model::load_all_materials(Loader_context& context, const tinygltf::Model& gltf_model)
+	void Model::load_all_images(Loader_context& loader_context, const tinygltf::Model& gltf_model)
 	{
 		for (auto i : Range(gltf_model.images.size()))
 		{
 			const auto& image = gltf_model.images[i];
-			if (context.sub_progress) *context.sub_progress = (float)i / gltf_model.images.size();
+			if (loader_context.sub_progress) *loader_context.sub_progress = (float)i / gltf_model.images.size();
 
 			Texture tex;
-			tex.parse(image, context);
+			tex.parse(image, loader_context);
 			textures.push_back(tex);
 		}
+	}
+
+	void Model::load_all_textures(Loader_context& loader_context, const tinygltf::Model& gltf_model)
+	{
+		for (auto i : Range(gltf_model.textures.size()))
+		{
+			const auto& texture = gltf_model.textures[i];
+			texture_views.emplace_back(loader_context, textures, gltf_model, texture);
+		}
+	}
+
+	void Model::load_all_materials(Loader_context& context, const tinygltf::Model& gltf_model)
+	{
+		auto add_material = [&context, gltf_model, this](
+								uint32_t&                   self_index,
+								const auto&                 tex_info,
+								const glm::vec<4, uint8_t>  col,
+								const vk::ComponentMapping& mapping = {}
+							)
+		{
+			if (tex_info.index < 0 || tex_info.index > (int)gltf_model.textures.size())
+			{
+				self_index = texture_views.size();
+
+				Texture tex;
+				tex.generate(col.r, col.g, col.b, col.a, context);
+
+				textures.push_back(tex);
+				texture_views.emplace_back(context, tex, mapping);
+			}
+			else
+			{
+				self_index = tex_info.index;
+			}
+		};
 
 		for (const auto& material : gltf_model.materials)
 		{
@@ -495,131 +530,40 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			}();
 
 			// Emissive
-			output_material.emissive_strength = glm::make_vec3(material.emissiveFactor.data());
+			output_material.params = Material::Mat_params{
+				glm::make_vec3(material.emissiveFactor.data()),
+				{material.pbrMetallicRoughness.roughnessFactor, material.pbrMetallicRoughness.metallicFactor},
+				glm::make_vec3(material.pbrMetallicRoughness.baseColorFactor.data()),
+				(float)material.alphaCutoff,
+				(float)material.normalTexture.scale,
+				(float)material.occlusionTexture.strength
+			};
+
 			if (material.extensions.contains("KHR_materials_emissive_strength"))
 			{
-				auto multiplier = material.extensions.at("KHR_materials_emissive_strength")
-									  .Get("emissiveStrength")
-									  .GetNumberAsDouble();
-				output_material.emissive_strength *= multiplier;
+				auto multiplier
+					= material.extensions.at("KHR_materials_emissive_strength").Get("emissiveStrength").GetNumberAsDouble();
+				output_material.params.emissive_strength = multiplier;
 			}
-
-			output_material.params = Material::Mat_params{output_material.emissive_strength, output_material.alpha_cutoff};
 
 			// Normal Texture
-			output_material.normal_idx = texture_views.size();
-			if (material.normalTexture.index < 0 || material.normalTexture.index >= (int)gltf_model.textures.size())
-			{
-				output_material.normal_idx = texture_views.size();
-
-				Texture tex;
-				tex.generate(127, 127, 255, 0, context);
-
-				textures.push_back(tex);
-				texture_views.emplace_back(context, tex, vk::ComponentMapping());
-			}
-			else
-			{
-				texture_views
-					.emplace_back(context, textures[gltf_model.textures[material.normalTexture.index].source], vk::ComponentMapping());
-			}
+			add_material(output_material.normal_idx, material.normalTexture, {127, 127, 255, 0});
 
 			// Albedo
-			output_material.albedo_idx = texture_views.size();
-			if (material.pbrMetallicRoughness.baseColorTexture.index < 0
-				|| material.pbrMetallicRoughness.baseColorTexture.index >= (int)gltf_model.textures.size())
-			{
-				Texture tex;
-				tex.generate(
-					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.baseColorFactor[0], 0, 255),
-					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.baseColorFactor[1], 0, 255),
-					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.baseColorFactor[2], 0, 255),
-					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.baseColorFactor[3], 0, 255),
-					context
-				);
-
-				textures.push_back(tex);
-				texture_views.emplace_back(context, tex, vk::ComponentMapping());
-			}
-			else
-			{
-				texture_views.emplace_back(
-					context,
-					textures[gltf_model.textures[material.pbrMetallicRoughness.baseColorTexture.index].source],
-					vk::ComponentMapping()
-				);
-			}
+			add_material(output_material.albedo_idx, material.pbrMetallicRoughness.baseColorTexture, {255, 255, 255, 255});
 
 			// PBR
-			output_material.metal_roughness_idx = texture_views.size();
-			if (material.pbrMetallicRoughness.metallicRoughnessTexture.index < 0
-				|| material.pbrMetallicRoughness.metallicRoughnessTexture.index >= (int)gltf_model.textures.size())
-			{
-
-				Texture tex;
-				tex.generate(
-					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.roughnessFactor, 0, 255),
-					std::clamp<uint8_t>(255 * material.pbrMetallicRoughness.metallicFactor, 0, 255),
-					0,
-					0,
-					context
-				);
-
-				textures.push_back(tex);
-				texture_views.emplace_back(context, tex, vk::ComponentMapping());
-			}
-			else
-			{
-				texture_views.emplace_back(
-					context,
-					textures[gltf_model.textures[material.pbrMetallicRoughness.metallicRoughnessTexture.index].source],
-					vk::ComponentMapping(vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB)
-				);
-			}
+			add_material(
+				output_material.metal_roughness_idx,
+				material.pbrMetallicRoughness.metallicRoughnessTexture,
+				{255, 255, 255, 255}
+			);
 
 			// Occlusion
-			output_material.occlusion_idx = texture_views.size();
-			if (material.occlusionTexture.index < 0 || material.occlusionTexture.index >= (int)gltf_model.textures.size())
-			{
-				Texture tex;
-				tex.generate(255, 255, 255, 255, context);
-
-				textures.push_back(tex);
-				texture_views.emplace_back(context, tex, vk::ComponentMapping());
-			}
-			else
-			{
-				texture_views.emplace_back(
-					context,
-					textures[gltf_model.textures[material.occlusionTexture.index].source],
-					vk::ComponentMapping()
-				);
-			}
+			add_material(output_material.occlusion_idx, material.occlusionTexture, {255, 255, 255, 255});
 
 			// Emissive
-			output_material.emissive_idx = texture_views.size();
-			if (material.emissiveTexture.index < 0 || material.emissiveTexture.index >= (int)gltf_model.textures.size())
-			{
-				Texture tex;
-				tex.generate(
-					std::clamp<int>(255 * material.emissiveFactor[0], 0, 255),
-					std::clamp<int>(255 * material.emissiveFactor[1], 0, 255),
-					std::clamp<int>(255 * material.emissiveFactor[2], 0, 255),
-					255,
-					context
-				);
-
-				textures.push_back(tex);
-				texture_views.emplace_back(context, tex, vk::ComponentMapping());
-			}
-			else
-			{
-				texture_views.emplace_back(
-					context,
-					textures[gltf_model.textures[material.emissiveTexture.index].source],
-					vk::ComponentMapping()
-				);
-			}
+			add_material(output_material.emissive_idx, material.emissiveTexture, {255, 255, 255, 255});
 
 			materials.push_back(output_material);
 		}
@@ -743,9 +687,10 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	void Model::load(Loader_context& loader_context, const tinygltf::Model& gltf_model)
 	{
-
 		// parse Materials
 		if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Load_material;
+		load_all_images(loader_context, gltf_model);
+		load_all_textures(loader_context, gltf_model);
 		load_all_materials(loader_context, gltf_model);
 
 		// parse Meshes
@@ -1131,10 +1076,10 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			{TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST, {vk::SamplerMipmapMode::eNearest, vk::Filter::eNearest}},
 		};
 
-		auto get_min = [=](uint32_t gltf_mode)
+		auto get_min = [=](uint32_t gltf_mode) -> std::tuple<vk::SamplerMipmapMode, vk::Filter>
 		{
 			const auto find = min_filter_lut.find(gltf_mode);
-			if (find == min_filter_lut.end()) throw Gltf_parse_error(std::format("{} is not a valid min filter", gltf_mode));
+			if (find == min_filter_lut.end()) return {vk::SamplerMipmapMode::eLinear, vk::Filter::eLinear};
 
 			return find->second;
 		};
@@ -1147,7 +1092,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		auto get_mag = [=](uint32_t gltf_mode)
 		{
 			const auto find = mag_filter_lut.find(gltf_mode);
-			if (find == mag_filter_lut.end()) throw Gltf_parse_error(std::format("{} is not a valid mag filter", gltf_mode));
+			if (find == mag_filter_lut.end()) return vk::Filter::eLinear;
 
 			return find->second;
 		};
@@ -1202,6 +1147,20 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 											 .setUnnormalizedCoordinates(false);
 
 		this->sampler = Image_sampler(context.device, sampler_create_info);
+	}
+
+	Texture_view::Texture_view(
+		const Loader_context&       context,
+		const std::vector<Texture>& texture_list,
+		const tinygltf::Model&      model,
+		const tinygltf::Texture&    texture,
+		const vk::ComponentMapping& components
+	) :
+		Texture_view(
+			texture.sampler >= 0 ? Texture_view(context, texture_list[texture.source], model.samplers[texture.sampler], components)
+								 : Texture_view(context, texture_list[texture.source], components)
+		)
+	{
 	}
 
 #pragma endregion

@@ -69,6 +69,33 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 				if (extension == ".gltf" || extension == ".glb") return std::make_shared<App_load_model_logic>(core, file_path_str);
 
 				if (extension == ".hdr") return std::make_shared<App_load_hdri_logic>(core, file_path_str);
+
+				if (extension == ".json")
+				{
+					try
+					{
+						const auto content = io::read_string(file_path_str);
+						const auto json    = nlohmann::json::parse(content);
+						load_preset_src.deserialize(json);
+
+						if (load_preset_src.model_path == core->source.model_path)
+						{
+							if (load_preset_src.hdri_path == core->source.hdri_path)
+							{
+								load_preset_src.assign(*this);
+								continue;
+							}
+
+							return std::make_shared<App_load_hdri_logic>(core, std::move(load_preset_src));
+						}
+
+						return std::make_shared<App_load_model_logic>(core, std::move(load_preset_src));
+					}
+					catch (...)
+					{
+						continue;
+					}
+				}
 			}
 		}
 
@@ -218,6 +245,8 @@ void App_render_logic::draw(uint32_t idx)
 
 void App_render_logic::generate_drawcalls(uint32_t idx)
 {
+	if (selected_animation >= 0) update_animation();
+
 	// Generate Gbuffer
 	{
 		const auto gbuffer_camera_param_prev = core->params.get_gbuffer_parameter(core->env);
@@ -374,7 +403,7 @@ void App_render_logic::update_uniforms(uint32_t idx)
 		lighting_params.skybox_brightness   = core->params.skybox_brightness;
 		lighting_params.emissive_brightness = core->params.emissive_brightness;
 		lighting_params.sunlight_pos        = core->params.get_light_direction();
-		lighting_params.sunlight_color      = glm::pow(core->params.sun.color, glm::vec3(1 / 2.2)) * core->params.sun.intensity;
+		lighting_params.sunlight_color      = glm::pow(core->params.sun.color, glm::vec3(2.2)) * core->params.sun.intensity;
 		lighting_params.time                = glm::fract(ImGui::GetTime());
 	}
 
@@ -1424,6 +1453,4 @@ void App_render_logic::animation_tab()
 			animation_start_time = now - animation_time / animation_rate;
 		}
 	}
-
-	update_animation();
 }

@@ -110,6 +110,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		Image_sampler sampler;
 
 		Texture_view() = default;
+
 		Texture_view(
 			const Loader_context&       context,
 			const Texture&              texture,
@@ -117,9 +118,13 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			const vk::ComponentMapping& components = {}
 		);
 
+		Texture_view(const Loader_context& context, const Texture& texture, const vk::ComponentMapping& components = {});
+
 		Texture_view(
 			const Loader_context&       context,
-			const Texture&              texture,
+			const std::vector<Texture>& texture_list,
+			const tinygltf::Model&      model,
+			const tinygltf::Texture&    texture,
 			const vk::ComponentMapping& components = {}
 		);
 
@@ -140,17 +145,21 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		std::string name;
 
-		size_t    albedo_idx, metal_roughness_idx, normal_idx, emissive_idx, occlusion_idx;
+		uint32_t  albedo_idx, metal_roughness_idx, normal_idx, emissive_idx, occlusion_idx;
 		bool      double_sided;
-		glm::vec3 emissive_strength;
 
 		float      alpha_cutoff;
 		Alpha_mode alpha_mode;
 
 		struct Mat_params
 		{
-			alignas(16) glm::vec3 emissive_strength;
+			alignas(16) glm::vec3 emissive_multiplier;
+			alignas(16) glm::vec2 metalness_roughness_multiplier;
+			alignas(16) glm::vec3 base_color_multiplier;
 			alignas(4) float alpha_cutoff;
+			alignas(4) float normal_scale;
+			alignas(4) float occlusion_strength;
+			alignas(4) float emissive_strength = 1.0;
 		} params;
 	};
 
@@ -374,6 +383,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		void load(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 
 		void load_all_materials(Loader_context& loader_context, const tinygltf::Model& gltf_model);
+		void load_all_images(Loader_context& loader_context, const tinygltf::Model& gltf_model);
+		void load_all_textures(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 		void load_all_scenes(const tinygltf::Model& gltf_model);
 		void load_all_nodes(const tinygltf::Model& model);
 		void load_all_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model);

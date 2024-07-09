@@ -3,8 +3,13 @@
 layout(set = 1, binding = 0) uniform sampler2D albedo_texture;
 layout(set = 1, binding = 1) uniform Mat_params
 {
-	vec3 emissive_factor;
+	vec3 emissive_multiplier;
+	vec2 metalness_roughness_multiplier;
+	vec3 base_color_multiplier;
 	float alpha_cutoff;
+	float normal_scale;
+	float occlusion_strength;
+	float emissive_strength;
 } mat_params;
 
 layout(location = 0) in vec2 out_uv;

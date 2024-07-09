@@ -18,6 +18,7 @@ compile_shader(deferred_shading_gltf shaders/bloom-filter.comp bloom_filter_comp
 compile_shader(deferred_shading_gltf shaders/composite.frag composite_frag)
 compile_shader(deferred_shading_gltf shaders/cube.vert cube_vert)
 compile_shader(deferred_shading_gltf shaders/exposure-lerp.comp exposure_lerp_comp)
+compile_shader(deferred_shading_gltf shaders/fxaa.frag fxaa_frag)
 compile_shader(deferred_shading_gltf shaders/gbuffer.frag gbuffer_frag)
 compile_shader(deferred_shading_gltf shaders/gbuffer.vert gbuffer_vert)
 compile_shader(deferred_shading_gltf shaders/gen-brdf.comp gen_brdf_comp)

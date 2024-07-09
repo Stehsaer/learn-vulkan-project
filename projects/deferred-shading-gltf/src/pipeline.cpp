@@ -853,7 +853,7 @@ void Composite_pipeline::create(const Environment& env)
 	{
 		const auto attachment = vk::AttachmentDescription()
 									.setInitialLayout(vk::ImageLayout::eUndefined)
-									.setFinalLayout(vk::ImageLayout::eColorAttachmentOptimal)
+									.setFinalLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
 									.setFormat(env.swapchain.surface_format.format)
 									.setLoadOp(vk::AttachmentLoadOp::eClear)
 									.setStoreOp(vk::AttachmentStoreOp::eStore)
@@ -863,7 +863,7 @@ void Composite_pipeline::create(const Environment& env)
 
 		const auto subpass = vk::SubpassDescription().setColorAttachments(attachment_ref);
 
-		std::array<vk::SubpassDependency, 3> dependencies;
+		std::array<vk::SubpassDependency, 2> dependencies;
 
 		// External=>S0, Sync Luminance
 		dependencies[0]
@@ -874,17 +874,8 @@ void Composite_pipeline::create(const Environment& env)
 			.setDstAccessMask(vk::AccessFlagBits::eShaderRead)
 			.setDstStageMask(vk::PipelineStageFlagBits::eFragmentShader);
 
-		// S0=>External, Sync IMGUI
-		dependencies[1]
-			.setSrcSubpass(0)
-			.setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
-			.setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
-			.setDstSubpass(vk::SubpassExternal)
-			.setDstAccessMask(vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite)
-			.setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
-
 		// External=>S0, Sync Bloom
-		dependencies[2]
+		dependencies[1]
 			.setSrcSubpass(vk::SubpassExternal)
 			.setSrcAccessMask(vk::AccessFlagBits::eShaderWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits::eComputeShader)
@@ -996,6 +987,174 @@ void Composite_pipeline::create(const Environment& env)
 
 #pragma endregion
 
+#pragma region "Fxaa Pipeline"
+
+static const std::map<Fxaa_mode, const char*> mode_name{
+	{Fxaa_mode::No_fxaa,         "No FXAA"          },
+	{Fxaa_mode::Fxaa_1,          "FXAA 1.0"         },
+	{Fxaa_mode::Fxaa_1_improved, "FXAA 1.0 Improved"},
+	{Fxaa_mode::Fxaa_3_quality,  "FXAA 3.0 Quality" },
+	{Fxaa_mode::Max_enum,        "MAX ENUM, DEBUG"  }
+};
+
+void Fxaa_pipeline::create(const Environment& env)
+{
+	//* Create Render pass
+	render_pass = [=]() -> Render_pass
+	{
+		const auto attachment = vk::AttachmentDescription()
+									.setInitialLayout(vk::ImageLayout::eUndefined)
+									.setFinalLayout(vk::ImageLayout::eColorAttachmentOptimal)
+									.setFormat(env.swapchain.surface_format.format)
+									.setLoadOp(vk::AttachmentLoadOp::eDontCare)
+									.setStoreOp(vk::AttachmentStoreOp::eStore)
+									.setSamples(vk::SampleCountFlagBits::e1);
+
+		const vk::AttachmentReference attachment_ref{0, vk::ImageLayout::eColorAttachmentOptimal};
+
+		const auto subpass = vk::SubpassDescription().setColorAttachments(attachment_ref);
+
+		std::array<vk::SubpassDependency, 2> dependencies;
+
+		// External=>S0, Sync Composite Output
+		dependencies[0]
+			.setSrcSubpass(vk::SubpassExternal)
+			.setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
+			.setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+			.setDstSubpass(0)
+			.setDstAccessMask(vk::AccessFlagBits::eShaderRead)
+			.setDstStageMask(vk::PipelineStageFlagBits::eFragmentShader);
+
+		// S0=>External, Sync IMGUI
+		dependencies[1]
+			.setSrcSubpass(0)
+			.setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
+			.setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+			.setDstSubpass(vk::SubpassExternal)
+			.setDstAccessMask(vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite)
+			.setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+
+		const auto render_pass = Render_pass(env.device, {attachment}, {subpass}, {dependencies});
+		env.debug_marker.set_object_name(render_pass, "Fxaa Renderpass");
+
+		return render_pass;
+	}();
+
+	//* Create Descriptor Set
+	descriptor_set_layout = [=]() -> Descriptor_set_layout
+	{
+		std::array<vk::DescriptorSetLayoutBinding, 2> bindings;
+
+		//* Composite Output
+		// layout(set = 0, binding = 0) uniform sampler2D input_tex;
+		bindings[0]
+			.setBinding(0)
+			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+			.setDescriptorCount(1)
+			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+		//* Parameters
+		// `layout(set = 0, binding = 1) uniform Params`
+		bindings[1]
+			.setBinding(1)
+			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+			.setDescriptorCount(1)
+			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+		const auto descriptor_set_layout = Descriptor_set_layout(env.device, bindings);
+		env.debug_marker.set_object_name(descriptor_set_layout, "Fxaa Descriptor Set Layout");
+
+		return descriptor_set_layout;
+	}();
+
+	//* Create Pipeline Layout
+	pipeline_layout = Pipeline_layout(env.device, {descriptor_set_layout}, {});
+
+	{
+		vk::GraphicsPipelineCreateInfo create_info;
+
+		const auto vert = GET_SHADER_MODULE(quad_vert), frag = GET_SHADER_MODULE(fxaa_frag);
+		auto       shader_info
+			= std::to_array({vert.stage_info(vk::ShaderStageFlagBits::eVertex), frag.stage_info(vk::ShaderStageFlagBits::eFragment)});
+		create_info.setStages(shader_info);
+
+		struct
+		{
+			glm::uint mode;
+		} spec;
+
+		const auto constant_entries = std::to_array({
+			vk::SpecializationMapEntry{0, offsetof(decltype(spec), mode), sizeof(spec.mode)},
+		});
+		const auto specialization_info
+			= vk::SpecializationInfo().setDataSize(sizeof(spec)).setPData(&spec).setMapEntries(constant_entries);
+		shader_info[1].setPSpecializationInfo(&specialization_info);
+
+		// Vertex Input State
+		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo();
+		create_info.setPVertexInputState(&vertex_input_state);
+
+		// Input Assembly State
+		auto input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleStrip);
+		create_info.setPInputAssemblyState(&input_assembly_info);
+
+		// Viewport State
+		auto viewports
+			= std::to_array({utility::flip_viewport(vk::Viewport(0, 0, env.swapchain.extent.width, env.swapchain.extent.height))});
+		auto scissors = std::to_array({vk::Rect2D({0, 0}, env.swapchain.extent)});
+
+		auto viewport_state = vk::PipelineViewportStateCreateInfo().setViewports(viewports).setScissors(scissors);
+		create_info.setPViewportState(&viewport_state);
+
+		// Rasterization State
+		auto rasterization_state = vk::PipelineRasterizationStateCreateInfo()
+									   .setPolygonMode(vk::PolygonMode::eFill)
+									   .setCullMode(vk::CullModeFlagBits::eNone)
+									   .setFrontFace(vk::FrontFace::eClockwise)
+									   .setLineWidth(1);
+		create_info.setPRasterizationState(&rasterization_state);
+
+		// Multisample State
+		auto multisample_state = vk::PipelineMultisampleStateCreateInfo().setRasterizationSamples(vk::SampleCountFlagBits::e1);
+		create_info.setPMultisampleState(&multisample_state);
+
+		// Depth Stencil State
+		auto depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo().setDepthTestEnable(false);
+		create_info.setPDepthStencilState(&depth_stencil_state);
+
+		// Color Blend State
+		vk::PipelineColorBlendStateCreateInfo color_blend_state;
+
+		vk::PipelineColorBlendAttachmentState attachment1_blend;
+		attachment1_blend.setBlendEnable(false).setColorWriteMask(
+			vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB
+			| vk::ColorComponentFlagBits::eA
+		);
+
+		auto attachment_states = std::to_array({attachment1_blend});
+		color_blend_state.setAttachments(attachment_states).setLogicOpEnable(false);
+		create_info.setPColorBlendState(&color_blend_state);
+
+		// Dynamic State
+		auto                               dynamic_states = std::to_array({vk::DynamicState::eViewport, vk::DynamicState::eScissor});
+		vk::PipelineDynamicStateCreateInfo dynamic_state_info;
+		dynamic_state_info.setDynamicStates(dynamic_states);
+		create_info.setPDynamicState(&dynamic_state_info);
+
+		create_info.setRenderPass(render_pass).setLayout(pipeline_layout).setSubpass(0);
+
+		//* Create Graphics Pipeline
+		for (const auto mode : Range((size_t)Fxaa_mode::Max_enum))
+		{
+			spec.mode       = mode;
+			pipelines[mode] = Graphics_pipeline(env.device, create_info);
+			env.debug_marker.set_object_name(pipelines[mode], std::format("Fxaa Pipeline ({})", mode_name.at((Fxaa_mode)mode)));
+		}
+	}
+}
+
+#pragma endregion
+
 void Pipeline_set::create(const Environment& env)
 {
 	shadow_pipeline.create(env);
@@ -1004,4 +1163,5 @@ void Pipeline_set::create(const Environment& env)
 	auto_exposure_pipeline.create(env);
 	bloom_pipeline.create(env);
 	composite_pipeline.create(env);
+	fxaa_pipeline.create(env);
 }

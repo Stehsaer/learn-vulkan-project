@@ -588,17 +588,34 @@ void Composite_rt::create(
 
 	const Render_pass&           render_pass,
 	const Descriptor_pool&       pool,
-	const Descriptor_set_layout& layout,
-	uint32_t                     idx
+	const Descriptor_set_layout& layout
 )
 {
-	image_view  = env.swapchain.image_views[idx];
+	composite_output = Image(
+		env.allocator,
+		vk::ImageType::e2D,
+		vk::Extent3D{env.swapchain.extent.width, env.swapchain.extent.height, 1},
+		env.swapchain.surface_format.format,
+		vk::ImageTiling::eOptimal,
+		vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
+		VMA_MEMORY_USAGE_GPU_ONLY,
+		vk::SharingMode::eExclusive
+	);
+
+	image_view = Image_view(
+		env.device,
+		composite_output,
+		env.swapchain.surface_format.format,
+		vk::ImageViewType::e2D,
+		{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}
+	);
+
 	framebuffer = Framebuffer(env.device, render_pass, {image_view}, vk::Extent3D(env.swapchain.extent, 1));
 
 	const auto sampler_create_info = vk::SamplerCreateInfo()
-										 .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-										 .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-										 .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+										 .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+										 .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+										 .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
 										 .setMipmapMode(vk::SamplerMipmapMode::eNearest)
 										 .setAnisotropyEnable(false)
 										 .setCompareEnable(false)
@@ -618,7 +635,8 @@ void Composite_rt::create(
 
 	descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
 
-	env.debug_marker.set_object_name(params_buffer, "Composite Params Buffer")
+	env.debug_marker.set_object_name(composite_output, "Composite Output Texture")
+		.set_object_name(params_buffer, "Composite Params Buffer")
 		.set_object_name(descriptor_set, "Composite Input Descriptor Set")
 		.set_object_name(framebuffer, "Composite Framebuffer")
 		.set_object_name(input_sampler, "Composite Input Sampler");
@@ -664,6 +682,72 @@ Descriptor_buffer_update<> Composite_rt::update_uniform(const Composite_pipeline
 
 #pragma endregion
 
+#pragma region "Fxaa RT"
+
+void Fxaa_rt::create(
+	const Environment&           env,
+	const Render_pass&           render_pass,
+	const Descriptor_pool&       pool,
+	const Descriptor_set_layout& layout,
+	uint32_t                     idx
+)
+{
+	image_view = env.swapchain.image_views[idx];
+
+	framebuffer = Framebuffer(env.device, render_pass, {image_view}, vk::Extent3D(env.swapchain.extent, 1));
+
+	const auto sampler_create_info = vk::SamplerCreateInfo()
+										 .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+										 .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+										 .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+										 .setMipmapMode(vk::SamplerMipmapMode::eNearest)
+										 .setAnisotropyEnable(false)
+										 .setCompareEnable(false)
+										 .setMinLod(0.0)
+										 .setMaxLod(0.0)
+										 .setMinFilter(vk::Filter::eLinear)
+										 .setMagFilter(vk::Filter::eLinear)
+										 .setUnnormalizedCoordinates(true);
+	input_sampler = Image_sampler(env.device, sampler_create_info);
+
+	params_buffer = Buffer(
+		env.allocator,
+		sizeof(Fxaa_pipeline::Params),
+		vk::BufferUsageFlagBits::eUniformBuffer,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_CPU_TO_GPU
+	);
+
+	descriptor_set = Descriptor_set::create_multiple(env.device, pool, {layout})[0];
+
+	env.debug_marker.set_object_name(params_buffer, "Fxaa Params Buffer")
+		.set_object_name(descriptor_set, "Fxaa Input Descriptor Set")
+		.set_object_name(framebuffer, "Fxaa Framebuffer")
+		.set_object_name(input_sampler, "Fxaa Input Sampler");
+}
+
+Descriptor_image_update<> Fxaa_rt::link_composite(const Composite_rt& composite)
+{
+	return {
+		descriptor_set,
+		0,
+		{input_sampler, composite.image_view, vk::ImageLayout::eShaderReadOnlyOptimal}
+	};
+}
+
+Descriptor_buffer_update<> Fxaa_rt::update_uniform(const Fxaa_pipeline::Params& param)
+{
+	params_buffer << std::span(&param, 1);
+
+	return {
+		descriptor_set,
+		1,
+		{params_buffer, 0, sizeof(Fxaa_pipeline::Params)}
+	};
+}
+
+#pragma endregion
+
 void Render_target_set::create(const Environment& env, const Pipeline_set& pipeline, uint32_t idx)
 {
 	Pool_size_calculator pool_size_calculator;
@@ -671,13 +755,20 @@ void Render_target_set::create(const Environment& env, const Pipeline_set& pipel
 		.add(Gbuffer_pipeline::descriptor_pool_size)
 		.add(Lighting_pipeline::descriptor_pool_size)
 		.add(Bloom_pipeline::descriptor_pool_size)
-		.add(Composite_pipeline::descriptor_pool_size);
+		.add(Composite_pipeline::descriptor_pool_size)
+		.add(Fxaa_pipeline::descriptor_pool_size);
 
 	const auto descriptor_pool_sizes = pool_size_calculator.get();
 
 	shared_pool = Descriptor_pool(env.device, descriptor_pool_sizes, 1024);
 
-	shadow_rt.create(env, pipeline.shadow_pipeline.render_pass, shared_pool, pipeline.shadow_pipeline.descriptor_set_layout_shadow_matrix, shadow_map_res);
+	shadow_rt.create(
+		env,
+		pipeline.shadow_pipeline.render_pass,
+		shared_pool,
+		pipeline.shadow_pipeline.descriptor_set_layout_shadow_matrix,
+		shadow_map_res
+	);
 
 	gbuffer_rt.create(env, pipeline.gbuffer_pipeline.render_pass, shared_pool, pipeline.gbuffer_pipeline.descriptor_set_layout_camera);
 
@@ -685,7 +776,9 @@ void Render_target_set::create(const Environment& env, const Pipeline_set& pipel
 
 	bloom_rt.create(env, shared_pool, pipeline.bloom_pipeline);
 
-	composite_rt.create(env, pipeline.composite_pipeline.render_pass, shared_pool, pipeline.composite_pipeline.descriptor_set_layout, idx);
+	composite_rt.create(env, pipeline.composite_pipeline.render_pass, shared_pool, pipeline.composite_pipeline.descriptor_set_layout);
+
+	fxaa_rt.create(env, pipeline.fxaa_pipeline.render_pass, shared_pool, pipeline.fxaa_pipeline.descriptor_set_layout, idx);
 }
 
 void Render_target_set::link(const Environment& env, const Auto_exposure_compute_rt& auto_exposure_rt)
@@ -727,6 +820,12 @@ void Render_target_set::link(const Environment& env, const Auto_exposure_compute
 		write_sets.push_back(std::get<1>(item).write_info());
 		write_sets.push_back(std::get<2>(item).write_info());
 	}
+
+	const auto fxaa_link_composite = fxaa_rt.link_composite(composite_rt);
+	const auto fxaa_link_buffer    = fxaa_rt.update_uniform(Fxaa_pipeline::Params(env.swapchain.extent));
+
+	write_sets.push_back(fxaa_link_composite.write_info());
+	write_sets.push_back(fxaa_link_buffer.write_info());
 
 	env.device->updateDescriptorSets(write_sets, {});
 }

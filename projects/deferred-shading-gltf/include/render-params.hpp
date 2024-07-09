@@ -4,6 +4,13 @@
 #include "hdri.hpp"
 #include "pipeline.hpp"
 
+inline const std::map<Fxaa_mode, const char*> fxaa_mode_name{
+	{Fxaa_mode::No_fxaa,         "No FXAA"          },
+	{Fxaa_mode::Fxaa_1,          "FXAA 1.0"         },
+	{Fxaa_mode::Fxaa_1_improved, "FXAA 1.0 Improved"},
+	{Fxaa_mode::Fxaa_3_quality,  "FXAA 3.0 Quality" },
+};
+
 struct Render_source
 {
 	std::shared_ptr<io::mesh::gltf::Model> model;
@@ -82,6 +89,8 @@ struct Render_params
 	bool              auto_adjust_far_plane  = true;
 	bool              auto_adjust_near_plane = true;
 	Camera_controller camera_controller;
+
+	Fxaa_mode fxaa_mode = Fxaa_mode::Fxaa_3_quality;
 
 	/*====== Lighting & Exposure ======*/
 

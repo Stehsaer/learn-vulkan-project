@@ -117,6 +117,8 @@ class App_render_logic : public Application_logic_base
 	void compute_process(uint32_t idx, const Command_buffer& command_buffer);
 
 	void draw_composite(uint32_t idx, const Command_buffer& command_buffer);
+	void draw_ui(uint32_t idx, const Command_buffer& command_buffer);
+	void execute_fxaa(uint32_t idx, const Command_buffer& command_buffer);
 	void draw_swapchain(uint32_t idx, const Command_buffer& command_buffer);
 
 	// Submit commands to queues

@@ -738,6 +738,58 @@ void App_render_logic::compute_auto_exposure(uint32_t idx, const Command_buffer&
 	core->env.debug_marker.end_region(command_buffer);
 }
 
+void App_render_logic::draw_ui(uint32_t idx, const Command_buffer& command_buffer)
+{
+	core->env.debug_marker.begin_region(command_buffer, "Draw IMGUI", {0.7, 0.0, 1.0, 1.0});
+	core->ui_controller.imgui_draw(core->env, command_buffer, idx, false);
+	core->env.debug_marker.end_region(command_buffer);
+}
+
+void App_render_logic::execute_fxaa(uint32_t idx, const Command_buffer& command_buffer)
+{
+	const auto draw_extent = vk::Rect2D({0, 0}, core->env.swapchain.extent);
+
+	auto set_viewport = [=, this](bool flip)
+	{
+		if (flip)
+			command_buffer.set_viewport(utility::flip_viewport(
+				vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
+			));
+		else
+			command_buffer.set_viewport(
+				vk::Viewport(0, 0, core->env.swapchain.extent.width, core->env.swapchain.extent.height, 0.0, 1.0)
+			);
+
+		command_buffer.set_scissor(vk::Rect2D({0, 0}, core->env.swapchain.extent));
+	};
+
+	core->env.debug_marker.begin_region(command_buffer, "Execute FXAA", {0.0, 0.2, 1.0, 1.0});
+	command_buffer.begin_render_pass(
+		core->pipeline_set.fxaa_pipeline.render_pass,
+		core->render_targets[idx].fxaa_rt.framebuffer,
+		draw_extent,
+		{}
+	);
+	{
+		set_viewport(false);
+
+		command_buffer.bind_descriptor_sets(
+			vk::PipelineBindPoint::eGraphics,
+			core->pipeline_set.fxaa_pipeline.pipeline_layout,
+			0,
+			{core->render_targets[idx].fxaa_rt.descriptor_set}
+		);
+
+		command_buffer.bind_pipeline(
+			vk::PipelineBindPoint::eGraphics,
+			core->pipeline_set.fxaa_pipeline.pipelines[(size_t)core->params.fxaa_mode]
+		);
+		command_buffer.draw(0, 4, 0, 1);
+	}
+	command_buffer.end_render_pass();
+	core->env.debug_marker.end_region(command_buffer);
+}
+
 void App_render_logic::draw_swapchain(uint32_t idx, const Command_buffer& command_buffer)
 {
 	command_buffer.begin();
@@ -745,10 +797,11 @@ void App_render_logic::draw_swapchain(uint32_t idx, const Command_buffer& comman
 		// Draw Composite
 		draw_composite(idx, command_buffer);
 
+		// Execute AA
+		execute_fxaa(idx, command_buffer);
+
 		// Draw UI
-		core->env.debug_marker.begin_region(command_buffer, "Draw IMGUI", {0.7, 0.0, 1.0, 1.0});
-		core->ui_controller.imgui_draw(core->env, command_buffer, idx, false);
-		core->env.debug_marker.end_region(command_buffer);
+		draw_ui(idx, command_buffer);
 	}
 	command_buffer.end();
 }
@@ -1182,6 +1235,17 @@ void App_render_logic::control_tab()
 		ImGui::Checkbox("Auto Adjust Far Plane", &params.auto_adjust_far_plane);
 		ImGui::Checkbox("Auto Adjust Near Plane", &params.auto_adjust_near_plane);
 		ImGui::SliderFloat("CSM Blend Factor", &params.csm_blend_factor, 0, 1);
+
+		// Fxaa Mode
+		if (ImGui::BeginCombo("FXAA Mode", fxaa_mode_name.at(params.fxaa_mode)))
+		{
+			for (auto i : Range((size_t)Fxaa_mode::Max_enum))
+			{
+				const auto mode = (Fxaa_mode)i;
+				if (ImGui::Selectable(fxaa_mode_name.at(mode), mode == params.fxaa_mode)) params.fxaa_mode = mode;
+			}
+			ImGui::EndCombo();
+		}
 	}
 
 	ImGui::SeparatorText("Debug");

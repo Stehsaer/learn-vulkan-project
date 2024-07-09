@@ -225,6 +225,46 @@ struct Composite_pipeline
 	void create(const Environment& env);
 };
 
+enum class Fxaa_mode
+{
+	No_fxaa = 0,
+	Fxaa_1,
+	Fxaa_1_improved,
+	Fxaa_3_quality,
+	Max_enum
+};
+
+struct Fxaa_pipeline
+{
+	struct Params
+	{
+		glm::vec4 resolution;
+
+		Params(const vk::Extent2D& extent) :
+			resolution(1.0 / extent.width, 1.0 / extent.height, extent.width, extent.height)
+		{
+		}
+
+		Params() :
+			Params({800, 600})
+		{
+		}
+	};
+
+	inline static auto descriptor_pool_size = std::to_array<vk::DescriptorPoolSize>({
+		{vk::DescriptorType::eUniformBuffer,        1},
+		{vk::DescriptorType::eCombinedImageSampler, 1}
+	});
+
+	Descriptor_set_layout descriptor_set_layout;
+	Pipeline_layout       pipeline_layout;
+	Render_pass           render_pass;
+
+	std::array<Graphics_pipeline, (size_t)Fxaa_mode::Max_enum> pipelines;
+
+	void create(const Environment& env);
+};
+
 struct Pipeline_set
 {
 	Shadow_pipeline                shadow_pipeline;
@@ -233,6 +273,7 @@ struct Pipeline_set
 	Auto_exposure_compute_pipeline auto_exposure_pipeline;
 	Bloom_pipeline                 bloom_pipeline;
 	Composite_pipeline             composite_pipeline;
+	Fxaa_pipeline                  fxaa_pipeline;
 
 	void create(const Environment& env);
 };

@@ -36,11 +36,12 @@ Trying my best to make my codebase clean and neat! :smile:
     - Debug Marker
     - Dither-based Alpha Rendering
     - 10-bit Rendering Support
+    - JSON Preset Loading
+    - FXAA Antialiasing
 
     **Planned Features**:
 
-    - HDR Support
-    - Mesh Combination at GLTF Parsing Stage
+    - HDR Support (PQ Curve)
     - Skins & Animation
     - KTX Loading & Texture Compression
     - Built-in Render Time Measuring

@@ -179,6 +179,7 @@ struct Bloom_rt
 
 struct Composite_rt
 {
+	Image       composite_output;
 	Image_view  image_view;
 	Framebuffer framebuffer;
 
@@ -187,12 +188,39 @@ struct Composite_rt
 	Buffer         params_buffer;  // @frag, set = 0, binding = 1
 	Descriptor_set descriptor_set;
 
-	void create(const Environment& env, const Render_pass& render_pass, const Descriptor_pool& pool, const Descriptor_set_layout& layout, uint32_t idx);
+	void create(
+		const Environment&           env,
+		const Render_pass&           render_pass,
+		const Descriptor_pool&       pool,
+		const Descriptor_set_layout& layout
+	);
 
 	Descriptor_image_update<>  link_lighting(const Lighting_rt& lighting);
 	Descriptor_buffer_update<> link_auto_exposure(const Auto_exposure_compute_rt& rt);
 	Descriptor_image_update<>  link_bloom(const Bloom_rt& bloom);
 	Descriptor_buffer_update<> update_uniform(const Composite_pipeline::Exposure_param& data);
+};
+
+struct Fxaa_rt
+{
+	Image_view  image_view;
+	Framebuffer framebuffer;
+
+	Image_sampler input_sampler;
+
+	Buffer         params_buffer;
+	Descriptor_set descriptor_set;
+
+	void create(
+		const Environment&           env,
+		const Render_pass&           render_pass,
+		const Descriptor_pool&       pool,
+		const Descriptor_set_layout& layout,
+		uint32_t                     idx
+	);
+
+	Descriptor_image_update<>  link_composite(const Composite_rt& composite);
+	Descriptor_buffer_update<> update_uniform(const Fxaa_pipeline::Params& param);
 };
 
 inline static std::array<uint32_t, 3> shadow_map_res{
@@ -242,6 +270,7 @@ struct Render_target_set
 	Lighting_rt  lighting_rt;
 	Bloom_rt     bloom_rt;
 	Composite_rt composite_rt;
+	Fxaa_rt      fxaa_rt;
 
 	void create(const Environment& env, const Pipeline_set& pipeline, uint32_t idx);
 	void link(const Environment& env, const Auto_exposure_compute_rt& auto_exposure_rt);

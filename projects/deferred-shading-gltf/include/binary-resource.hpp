@@ -31,6 +31,9 @@ namespace binary_resource
 	// SOURCE: shaders/exposure-lerp.comp
 	DEFINE_RESOURCE(exposure_lerp_comp)
 
+	// SOURCE: shaders/fxaa.frag
+	DEFINE_RESOURCE(fxaa_frag)
+
 	// SOURCE: shaders/gen-brdf.comp
 	DEFINE_RESOURCE(gen_brdf_comp)
 

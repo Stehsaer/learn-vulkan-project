@@ -2,74 +2,86 @@
 #include "environment.hpp"
 #include "pipeline.hpp"
 
-struct Descriptor_update_base
+struct Write_descriptor_base
 {
-	virtual vk::WriteDescriptorSet write_info() const = 0;
+	inline static constexpr size_t write_dynamic_count                     = std::numeric_limits<size_t>::max();
+	virtual                        operator vk::WriteDescriptorSet() const = 0;
+};
+
+template <size_t Count, vk::DescriptorType Type, typename Vk_info_type>
+	requires(
+		Count != 0 && (std::is_same_v<Vk_info_type, vk::DescriptorBufferInfo> || std::is_same_v<Vk_info_type, vk::DescriptorImageInfo>)
+	)
+struct Write_descriptor_template : public Write_descriptor_base
+{
+	using Info_type = std::conditional_t<
+		Count == 1,
+		Vk_info_type,
+		std::conditional_t<
+			Count == Write_descriptor_base::write_dynamic_count,
+			std::vector<Vk_info_type>,
+			std::array<Vk_info_type, Count>>>;
+
+	vk::DescriptorSet set;
+	uint32_t          binding;
+	Info_type         info;
+
+	Write_descriptor_template() = default;
+
+	Write_descriptor_template(const Descriptor_set& set, uint32_t binding)
+	{
+		this->set     = set;
+		this->binding = binding;
+	}
+
+	Write_descriptor_template& set_info(const Vk_info_type& info)
+		requires(Count == 1)
+	{
+		this->info = info;
+		return *this;
+	}
+
+	Vk_info_type& operator[](size_t idx)
+		requires(Count > 1 && Count != write_dynamic_count)
+	{
+		return info[idx];
+	}
+
+	Write_descriptor_template& add(const Vk_info_type& info)
+		requires(Count == write_dynamic_count)
+	{
+		this->info.push_back(info);
+		return *this;
+	}
+
+	virtual operator vk::WriteDescriptorSet() const
+	{
+		auto ret = vk::WriteDescriptorSet().setDstBinding(binding).setDstSet(set).setDescriptorCount(Count).setDescriptorType(Type);
+
+		if constexpr (std::is_same_v<Vk_info_type, vk::DescriptorBufferInfo>)
+		{
+			if constexpr (Count == 1)
+				ret.pBufferInfo = &info;
+			else
+				ret.pBufferInfo = info.data();
+		}
+		else
+		{
+			if constexpr (Count == 1)
+				ret.pImageInfo = &info;
+			else
+				ret.pImageInfo = info.data();
+		}
+
+		return ret;
+	}
 };
 
 template <size_t Count = 1, vk::DescriptorType Type = vk::DescriptorType::eUniformBuffer>
-	requires(Count != 0)
-struct Descriptor_buffer_update : public Descriptor_update_base
-{
-	using Info_type = std::conditional_t<Count == 1, vk::DescriptorBufferInfo, std::array<vk::DescriptorBufferInfo, Count>>;
-
-	vk::DescriptorSet set;
-	uint32_t          binding;
-	Info_type         info;
-
-	Descriptor_buffer_update(const Descriptor_set& set, uint32_t binding, const Info_type& info) :
-		set(set),
-		binding(binding),
-		info(info)
-	{
-	}
-
-	Descriptor_buffer_update() = default;
-
-	virtual vk::WriteDescriptorSet write_info() const
-	{
-		auto ret = vk::WriteDescriptorSet().setDstBinding(binding).setDstSet(set).setDescriptorCount(Count).setDescriptorType(Type);
-
-		if constexpr (Count == 1)
-			ret.pBufferInfo = &info;
-		else
-			ret.pBufferInfo = info.data();
-
-		return ret;
-	}
-};
+using Write_descriptor_buffer = Write_descriptor_template<Count, Type, vk::DescriptorBufferInfo>;
 
 template <size_t Count = 1, vk::DescriptorType Type = vk::DescriptorType::eCombinedImageSampler>
-	requires(Count != 0)
-struct Descriptor_image_update : public Descriptor_update_base
-{
-	using Info_type = std::conditional_t<Count == 1, vk::DescriptorImageInfo, std::array<vk::DescriptorImageInfo, Count>>;
-
-	vk::DescriptorSet set;
-	uint32_t          binding;
-	Info_type         info;
-
-	Descriptor_image_update(const Descriptor_set& set, uint32_t binding, const Info_type& info) :
-		set(set),
-		binding(binding),
-		info(info)
-	{
-	}
-
-	Descriptor_image_update() = default;
-
-	virtual vk::WriteDescriptorSet write_info() const
-	{
-		auto ret = vk::WriteDescriptorSet().setDstBinding(binding).setDstSet(set).setDescriptorCount(Count).setDescriptorType(Type);
-
-		if constexpr (Count == 1)
-			ret.pImageInfo = &info;
-		else
-			ret.pImageInfo = info.data();
-
-		return ret;
-	}
-};
+using Write_descriptor_image = Write_descriptor_template<Count, Type, vk::DescriptorImageInfo>;
 
 struct Shadow_rt
 {
@@ -88,7 +100,8 @@ struct Shadow_rt
 		const std::array<uint32_t, csm_count>& shadow_map_size
 	);
 
-	std::array<Descriptor_buffer_update<>, csm_count> update_uniform(const std::array<Shadow_pipeline::Shadow_uniform, csm_count>& data);
+	std::array<Write_descriptor_buffer<>, csm_count> update_uniform(const std::array<Shadow_pipeline::Shadow_uniform, csm_count>& data
+	);
 };
 
 struct Gbuffer_rt
@@ -102,7 +115,7 @@ struct Gbuffer_rt
 
 	void create(const Environment& env, const Render_pass& render_pass, const Descriptor_pool& pool, const Descriptor_set_layout& layout);
 
-	Descriptor_buffer_update<> update_uniform(const Gbuffer_pipeline::Camera_uniform& data);
+	Write_descriptor_buffer<> update_uniform(const Gbuffer_pipeline::Camera_uniform& data);
 };
 
 struct Lighting_rt
@@ -118,10 +131,10 @@ struct Lighting_rt
 
 	void create(const Environment& env, const Render_pass& render_pass, const Descriptor_pool& pool, const Descriptor_set_layout& layout);
 
-	std::array<Descriptor_image_update<>, 5> link_gbuffer(const Gbuffer_rt& gbuffer);
-	Descriptor_image_update<csm_count>       link_shadow(const Shadow_rt& shadow);
+	std::array<Write_descriptor_image<>, 5> link_gbuffer(const Gbuffer_rt& gbuffer);
+	Write_descriptor_image<csm_count>       link_shadow(const Shadow_rt& shadow);
 
-	Descriptor_buffer_update<> update_uniform(const Lighting_pipeline::Params& data);
+	Write_descriptor_buffer<> update_uniform(const Lighting_pipeline::Params& data);
 };
 
 struct Auto_exposure_compute_rt
@@ -134,11 +147,11 @@ struct Auto_exposure_compute_rt
 	void create(const Environment& env, const Descriptor_pool& pool, const Auto_exposure_compute_pipeline& pipeline, uint32_t count);
 
 	std::tuple<
-		std::vector<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
-		std::vector<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>>>
+		std::vector<Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
+		std::vector<Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>>>
 	link_lighting(const std::vector<const Lighting_rt*>& rt);
 
-	std::array<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>, 2> link_self();
+	std::array<Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>, 2> link_self();
 };
 
 struct Bloom_rt
@@ -158,21 +171,21 @@ struct Bloom_rt
 
 	void create(const Environment& env, const Descriptor_pool& pool, const Bloom_pipeline& pipeline);
 
-	std::tuple<std::array<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, 2>, Descriptor_buffer_update<>> link_bloom_filter(
-		const Lighting_rt&              lighting,
-		const Auto_exposure_compute_rt& exposure
-	);
+	std::tuple<std::array<Write_descriptor_image<1, vk::DescriptorType::eStorageImage>, 2>, Write_descriptor_buffer<>>
+	link_bloom_filter(const Lighting_rt& lighting, const Auto_exposure_compute_rt& exposure);
 
 	std::array<
-		std::tuple<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+		std::tuple<
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>,
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
 		bloom_downsample_count - 2>
 	link_bloom_blur();
 
 	std::array<
 		std::tuple<
-			Descriptor_image_update<>,
-			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>,
-			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+			Write_descriptor_image<>,
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>,
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
 		bloom_downsample_count - 2>
 	link_bloom_acc();
 };
@@ -195,10 +208,10 @@ struct Composite_rt
 		const Descriptor_set_layout& layout
 	);
 
-	Descriptor_image_update<>  link_lighting(const Lighting_rt& lighting);
-	Descriptor_buffer_update<> link_auto_exposure(const Auto_exposure_compute_rt& rt);
-	Descriptor_image_update<>  link_bloom(const Bloom_rt& bloom);
-	Descriptor_buffer_update<> update_uniform(const Composite_pipeline::Exposure_param& data);
+	Write_descriptor_image<>  link_lighting(const Lighting_rt& lighting);
+	Write_descriptor_buffer<> link_auto_exposure(const Auto_exposure_compute_rt& rt);
+	Write_descriptor_image<>  link_bloom(const Bloom_rt& bloom);
+	Write_descriptor_buffer<> update_uniform(const Composite_pipeline::Exposure_param& data);
 };
 
 struct Fxaa_rt
@@ -219,8 +232,8 @@ struct Fxaa_rt
 		uint32_t                     idx
 	);
 
-	Descriptor_image_update<>  link_composite(const Composite_rt& composite);
-	Descriptor_buffer_update<> update_uniform(const Fxaa_pipeline::Params& param);
+	Write_descriptor_image<>  link_composite(const Composite_rt& composite);
+	Write_descriptor_buffer<> update_uniform(const Fxaa_pipeline::Params& param);
 };
 
 inline static std::array<uint32_t, 3> shadow_map_res{

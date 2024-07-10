@@ -58,18 +58,17 @@ void Shadow_rt::create(
 	}
 }
 
-std::array<Descriptor_buffer_update<>, csm_count> Shadow_rt::update_uniform(const std::array<Shadow_pipeline::Shadow_uniform, csm_count>& data)
+std::array<Write_descriptor_buffer<>, csm_count> Shadow_rt::update_uniform(
+	const std::array<Shadow_pipeline::Shadow_uniform, csm_count>& data
+)
 {
 	for (auto i : Range(csm_count)) shadow_matrix_uniform[i] << std::span(&data[i], 1);
 
-	std::array<Descriptor_buffer_update<>, csm_count> ret;
+	std::array<Write_descriptor_buffer<>, csm_count> ret;
 
 	for (auto i : Range(csm_count))
-		ret[i] = Descriptor_buffer_update<>{
-			shadow_matrix_descriptor_set[i],
-			0,
-			vk::DescriptorBufferInfo(shadow_matrix_uniform[i], 0, sizeof(Shadow_pipeline::Shadow_uniform))
-		};
+		ret[i] = Write_descriptor_buffer<>(shadow_matrix_descriptor_set[i], 0)
+					 .set_info({shadow_matrix_uniform[i], 0, sizeof(Shadow_pipeline::Shadow_uniform)});
 
 	return ret;
 }
@@ -154,15 +153,12 @@ void Gbuffer_rt::create(const Environment& env, const Render_pass& render_pass, 
 		.set_object_name(framebuffer, "Gbuffer Framebuffer");
 }
 
-Descriptor_buffer_update<> Gbuffer_rt::update_uniform(const Gbuffer_pipeline::Camera_uniform& data)
+Write_descriptor_buffer<> Gbuffer_rt::update_uniform(const Gbuffer_pipeline::Camera_uniform& data)
 {
 	camera_uniform_buffer << std::span(&data, 1);
 
-	return {
-		camera_uniform_descriptor_set,
-		0,
-		{camera_uniform_buffer, 0, sizeof(Gbuffer_pipeline::Camera_uniform)}
-	};
+	return Write_descriptor_buffer<>(camera_uniform_descriptor_set, 0)
+		.set_info({camera_uniform_buffer, 0, sizeof(Gbuffer_pipeline::Camera_uniform)});
 }
 
 #pragma endregion
@@ -253,7 +249,7 @@ void Lighting_rt::create(const Environment& env, const Render_pass& render_pass,
 		.set_object_name(input_descriptor_set, "Lighting Input Descriptor Set");
 }
 
-std::array<Descriptor_image_update<>, 5> Lighting_rt::link_gbuffer(const Gbuffer_rt& gbuffer)
+std::array<Write_descriptor_image<>, 5> Lighting_rt::link_gbuffer(const Gbuffer_rt& gbuffer)
 {
 	const vk::DescriptorImageInfo normal_info{input_sampler, gbuffer.normal_view, vk::ImageLayout::eShaderReadOnlyOptimal},
 		albedo_info{input_sampler, gbuffer.albedo_view, vk::ImageLayout::eShaderReadOnlyOptimal},
@@ -261,40 +257,34 @@ std::array<Descriptor_image_update<>, 5> Lighting_rt::link_gbuffer(const Gbuffer
 		emissive_info{input_sampler, gbuffer.emissive_view, vk::ImageLayout::eShaderReadOnlyOptimal},
 		depth_info{input_sampler, gbuffer.depth_view, vk::ImageLayout::eShaderReadOnlyOptimal};
 
-	std::array<Descriptor_image_update<>, 5> ret;
+	std::array<Write_descriptor_image<>, 5> ret;
 
 	for (auto& pak : ret) pak.set = input_descriptor_set;
 
-	ret[0].binding = 0, ret[0].info = depth_info;
-	ret[1].binding = 1, ret[1].info = normal_info;
-	ret[2].binding = 2, ret[2].info = albedo_info;
-	ret[3].binding = 3, ret[3].info = pbr_info;
-	ret[4].binding = 5, ret[4].info = emissive_info;
+	ret[0].binding = 0, ret[0].set_info(depth_info);
+	ret[1].binding = 1, ret[1].set_info(normal_info);
+	ret[2].binding = 2, ret[2].set_info(albedo_info);
+	ret[3].binding = 3, ret[3].set_info(pbr_info);
+	ret[4].binding = 5, ret[4].set_info(emissive_info);
 
 	return ret;
 }
 
-Descriptor_image_update<csm_count> Lighting_rt::link_shadow(const Shadow_rt& shadow)
+Write_descriptor_image<csm_count> Lighting_rt::link_shadow(const Shadow_rt& shadow)
 {
-	Descriptor_image_update<csm_count> ret;
-	ret.set     = input_descriptor_set;
-	ret.binding = 4;
+	Write_descriptor_image<csm_count> ret(input_descriptor_set, 4);
 
-	for (auto i : Range(csm_count)) ret.info[i] = {shadow_map_sampler, shadow.shadow_image_views[i], vk::ImageLayout::eShaderReadOnlyOptimal};
+	for (auto i : Range(csm_count))
+		ret[i] = {shadow_map_sampler, shadow.shadow_image_views[i], vk::ImageLayout::eShaderReadOnlyOptimal};
 
 	return ret;
 }
 
-Descriptor_buffer_update<> Lighting_rt::update_uniform(const Lighting_pipeline::Params& data)
+Write_descriptor_buffer<> Lighting_rt::update_uniform(const Lighting_pipeline::Params& data)
 {
 	transmat_buffer << std::span(&data, 1);
 
-	Descriptor_buffer_update<> ret;
-	ret.set     = input_descriptor_set;
-	ret.binding = 6;
-	ret.info    = {transmat_buffer, 0, sizeof(Lighting_pipeline::Params)};
-
-	return ret;
+	return Write_descriptor_buffer<>(input_descriptor_set, 6).set_info({transmat_buffer, 0, sizeof(Lighting_pipeline::Params)});
 }
 
 #pragma endregion
@@ -372,34 +362,34 @@ void Auto_exposure_compute_rt::create(const Environment& env, const Descriptor_p
 }
 
 std::tuple<
-	std::vector<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
-	std::vector<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>>>
+	std::vector<Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
+	std::vector<Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>>>
 Auto_exposure_compute_rt::link_lighting(const std::vector<const Lighting_rt*>& rt)
 {
-	std::vector<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>   ret1;
-	std::vector<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>> ret2;
+	std::vector<Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>   ret1;
+	std::vector<Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>> ret2;
 	ret1.reserve(rt.size());
 	ret2.reserve(rt.size());
 
 	for (auto i : Range(rt.size()))
 	{
-		ret1.emplace_back(luminance_avg_descriptor_sets[i], 0, vk::DescriptorImageInfo({}, rt[i]->brightness_view, vk::ImageLayout::eGeneral));
+		ret1.push_back(Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(luminance_avg_descriptor_sets[i], 0)
+						   .set_info({{}, rt[i]->brightness_view, vk::ImageLayout::eGeneral}));
 
-		ret2.emplace_back(
-			luminance_avg_descriptor_sets[i],
-			1,
-			vk::DescriptorBufferInfo(medium_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_medium))
-		);
+		ret2.emplace_back(Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>(luminance_avg_descriptor_sets[i], 1)
+							  .set_info({medium_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_medium)}));
 	}
 
 	return {ret1, ret2};
 }
 
-std::array<Descriptor_buffer_update<1, vk::DescriptorType::eStorageBuffer>, 2> Auto_exposure_compute_rt::link_self()
+std::array<Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>, 2> Auto_exposure_compute_rt::link_self()
 {
 	return {
-		{{lerp_descriptor_set, 0, vk::DescriptorBufferInfo(medium_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_medium))},
-		 {lerp_descriptor_set, 1, vk::DescriptorBufferInfo(out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result))}}
+		Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>(lerp_descriptor_set, 0)
+			.set_info({medium_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_medium)}),
+		Write_descriptor_buffer<1, vk::DescriptorType::eStorageBuffer>(lerp_descriptor_set, 1)
+			.set_info({out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result)})
 	};
 }
 
@@ -499,28 +489,17 @@ void Bloom_rt::create(const Environment& env, const Descriptor_pool& pool, const
 		.set_object_name(bloom_downsample_chain, "Bloom Downsample Image Chain");
 }
 
-std::tuple<std::array<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, 2>, Descriptor_buffer_update<>> Bloom_rt::link_bloom_filter(
-	const Lighting_rt&              lighting,
-	const Auto_exposure_compute_rt& exposure
-)
+std::tuple<std::array<Write_descriptor_image<1, vk::DescriptorType::eStorageImage>, 2>, Write_descriptor_buffer<>> Bloom_rt::
+	link_bloom_filter(const Lighting_rt& lighting, const Auto_exposure_compute_rt& exposure)
 {
-	const auto link_lighting = Descriptor_image_update<1, vk::DescriptorType::eStorageImage>{
-		bloom_filter_descriptor_set,
-		0,
-		{{}, lighting.luminance_view, vk::ImageLayout::eGeneral}
-	};
+	const auto link_lighting = Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(bloom_filter_descriptor_set, 0)
+								   .set_info({{}, lighting.luminance_view, vk::ImageLayout::eGeneral});
 
-	const auto link_self = Descriptor_image_update<1, vk::DescriptorType::eStorageImage>{
-		bloom_filter_descriptor_set,
-		1,
-		{{}, downsample_chain_view[0], vk::ImageLayout::eGeneral}
-	};
+	const auto link_self = Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(bloom_filter_descriptor_set, 1)
+							   .set_info({{}, downsample_chain_view[0], vk::ImageLayout::eGeneral});
 
-	const auto link_uniform = Descriptor_buffer_update<>{
-		bloom_filter_descriptor_set,
-		2,
-		{exposure.out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result)}
-	};
+	const auto link_uniform = Write_descriptor_buffer<>(bloom_filter_descriptor_set, 2)
+								  .set_info({exposure.out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result)});
 
 	return {
 		{link_lighting, link_self},
@@ -529,21 +508,26 @@ std::tuple<std::array<Descriptor_image_update<1, vk::DescriptorType::eStorageIma
 }
 
 std::array<
-	std::tuple<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+	std::tuple<
+		Write_descriptor_image<1, vk::DescriptorType::eStorageImage>,
+		Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
 	bloom_downsample_count - 2>
 Bloom_rt::link_bloom_blur()
 {
 	std::array<
-		std::tuple<Descriptor_image_update<1, vk::DescriptorType::eStorageImage>, Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+		std::tuple<
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>,
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
 		bloom_downsample_count - 2>
 		ret;
 
 	for (auto i : Range(bloom_downsample_count - 2))
 	{
-		ret[i] = {
-			{bloom_blur_descriptor_sets[i], 0, {{}, downsample_chain_view[i + 1], vk::ImageLayout::eGeneral}},
-			{bloom_blur_descriptor_sets[i], 1, {{}, upsample_chain_view[i], vk::ImageLayout::eGeneral}      }
-		};
+		ret[i]
+			= {Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(bloom_blur_descriptor_sets[i], 0)
+				   .set_info({{}, downsample_chain_view[i + 1], vk::ImageLayout::eGeneral}),
+			   Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(bloom_blur_descriptor_sets[i], 1)
+				   .set_info({{}, upsample_chain_view[i], vk::ImageLayout::eGeneral})};
 	}
 
 	return ret;
@@ -551,17 +535,17 @@ Bloom_rt::link_bloom_blur()
 
 std::array<
 	std::tuple<
-		Descriptor_image_update<>,
-		Descriptor_image_update<1, vk::DescriptorType::eStorageImage>,
-		Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+		Write_descriptor_image<>,
+		Write_descriptor_image<1, vk::DescriptorType::eStorageImage>,
+		Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
 	bloom_downsample_count - 2>
 Bloom_rt::link_bloom_acc()
 {
 	std::array<
 		std::tuple<
-			Descriptor_image_update<>,
-			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>,
-			Descriptor_image_update<1, vk::DescriptorType::eStorageImage>>,
+			Write_descriptor_image<>,
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>,
+			Write_descriptor_image<1, vk::DescriptorType::eStorageImage>>,
 		bloom_downsample_count - 2>
 		ret;
 
@@ -569,11 +553,13 @@ Bloom_rt::link_bloom_acc()
 	{
 		const auto src_view = i == bloom_downsample_count - 3 ? downsample_chain_view[bloom_downsample_count - 1] : upsample_chain_view[i + 1];
 
-		ret[i] = {
-			{bloom_acc_descriptor_sets[i], 0, {upsample_chain_sampler, src_view, vk::ImageLayout::eShaderReadOnlyOptimal}},
-			{bloom_acc_descriptor_sets[i], 1, {{}, upsample_chain_view[i], vk::ImageLayout::eGeneral}                    },
-			{bloom_acc_descriptor_sets[i], 2, {{}, downsample_chain_view[i + 1], vk::ImageLayout::eGeneral}              }
-		};
+		ret[i]
+			= {Write_descriptor_image<>(bloom_acc_descriptor_sets[i], 0)
+				   .set_info({upsample_chain_sampler, src_view, vk::ImageLayout::eShaderReadOnlyOptimal}),
+			   Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(bloom_acc_descriptor_sets[i], 1)
+				   .set_info({{}, upsample_chain_view[i], vk::ImageLayout::eGeneral}),
+			   Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(bloom_acc_descriptor_sets[i], 2)
+				   .set_info({{}, downsample_chain_view[i + 1], vk::ImageLayout::eGeneral})};
 	}
 
 	return ret;
@@ -642,42 +628,29 @@ void Composite_rt::create(
 		.set_object_name(input_sampler, "Composite Input Sampler");
 }
 
-Descriptor_image_update<> Composite_rt::link_lighting(const Lighting_rt& lighting)
+Write_descriptor_image<> Composite_rt::link_lighting(const Lighting_rt& lighting)
 {
-	return {
-		descriptor_set,
-		0,
-		{input_sampler, lighting.luminance_view, vk::ImageLayout::eShaderReadOnlyOptimal}
-	};
+	return Write_descriptor_image<>(descriptor_set, 0)
+		.set_info({input_sampler, lighting.luminance_view, vk::ImageLayout::eShaderReadOnlyOptimal});
 }
 
-Descriptor_buffer_update<> Composite_rt::link_auto_exposure(const Auto_exposure_compute_rt& rt)
+Write_descriptor_buffer<> Composite_rt::link_auto_exposure(const Auto_exposure_compute_rt& rt)
 {
-	return {
-		descriptor_set,
-		2,
-		{rt.out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result)}
-	};
+	return Write_descriptor_buffer<>(descriptor_set, 2)
+		.set_info({rt.out_buffer, 0, sizeof(Auto_exposure_compute_pipeline::Exposure_result)});
 }
 
-Descriptor_image_update<> Composite_rt::link_bloom(const Bloom_rt& bloom)
+Write_descriptor_image<> Composite_rt::link_bloom(const Bloom_rt& bloom)
 {
-	return {
-		descriptor_set,
-		3,
-		{bloom.upsample_chain_sampler, bloom.upsample_chain_view[0], vk::ImageLayout::eShaderReadOnlyOptimal}
-	};
+	return Write_descriptor_image<>(descriptor_set, 3)
+		.set_info({bloom.upsample_chain_sampler, bloom.upsample_chain_view[0], vk::ImageLayout::eShaderReadOnlyOptimal});
 }
 
-Descriptor_buffer_update<> Composite_rt::update_uniform(const Composite_pipeline::Exposure_param& data)
+Write_descriptor_buffer<> Composite_rt::update_uniform(const Composite_pipeline::Exposure_param& data)
 {
 	params_buffer << std::span(&data, 1);
 
-	return {
-		descriptor_set,
-		1,
-		{params_buffer, 0, sizeof(Composite_pipeline::Exposure_param)}
-	};
+	return Write_descriptor_buffer<>(descriptor_set, 1).set_info({params_buffer, 0, sizeof(Composite_pipeline::Exposure_param)});
 }
 
 #pragma endregion
@@ -726,24 +699,17 @@ void Fxaa_rt::create(
 		.set_object_name(input_sampler, "Fxaa Input Sampler");
 }
 
-Descriptor_image_update<> Fxaa_rt::link_composite(const Composite_rt& composite)
+Write_descriptor_image<> Fxaa_rt::link_composite(const Composite_rt& composite)
 {
-	return {
-		descriptor_set,
-		0,
-		{input_sampler, composite.image_view, vk::ImageLayout::eShaderReadOnlyOptimal}
-	};
+	return Write_descriptor_image<>(descriptor_set, 0)
+		.set_info({input_sampler, composite.image_view, vk::ImageLayout::eShaderReadOnlyOptimal});
 }
 
-Descriptor_buffer_update<> Fxaa_rt::update_uniform(const Fxaa_pipeline::Params& param)
+Write_descriptor_buffer<> Fxaa_rt::update_uniform(const Fxaa_pipeline::Params& param)
 {
 	params_buffer << std::span(&param, 1);
 
-	return {
-		descriptor_set,
-		1,
-		{params_buffer, 0, sizeof(Fxaa_pipeline::Params)}
-	};
+	return Write_descriptor_buffer<>(descriptor_set, 1).set_info({params_buffer, 0, sizeof(Fxaa_pipeline::Params)});
 }
 
 #pragma endregion
@@ -787,45 +753,45 @@ void Render_target_set::link(const Environment& env, const Auto_exposure_compute
 	write_sets.reserve(128);
 
 	const auto lighting_link_gbuffer = lighting_rt.link_gbuffer(gbuffer_rt);
-	for (const auto& item : lighting_link_gbuffer) write_sets.push_back(item.write_info());
+	for (const auto& item : lighting_link_gbuffer) write_sets.push_back(item);
 
 	const auto lighting_link_shadow = lighting_rt.link_shadow(shadow_rt);
-	write_sets.push_back(lighting_link_shadow.write_info());
+	write_sets.push_back(lighting_link_shadow);
 
 	const auto composite_link_lighting = composite_rt.link_lighting(lighting_rt);
-	write_sets.push_back(composite_link_lighting.write_info());
+	write_sets.push_back(composite_link_lighting);
 
 	const auto composite_link_auto_exposure = composite_rt.link_auto_exposure(auto_exposure_rt);
-	write_sets.push_back(composite_link_auto_exposure.write_info());
+	write_sets.push_back(composite_link_auto_exposure);
 
 	const auto composite_link_bloom = composite_rt.link_bloom(bloom_rt);
-	write_sets.push_back(composite_link_bloom.write_info());
+	write_sets.push_back(composite_link_bloom);
 
 	const auto [bloom_link_filter_image, bloom_link_filter_buffer] = bloom_rt.link_bloom_filter(lighting_rt, auto_exposure_rt);
-	write_sets.push_back(bloom_link_filter_image[0].write_info());
-	write_sets.push_back(bloom_link_filter_image[1].write_info());
-	write_sets.push_back(bloom_link_filter_buffer.write_info());
+	write_sets.push_back(bloom_link_filter_image[0]);
+	write_sets.push_back(bloom_link_filter_image[1]);
+	write_sets.push_back(bloom_link_filter_buffer);
 
 	const auto bloom_link_blur = bloom_rt.link_bloom_blur();
 	for (const auto& item : bloom_link_blur)
 	{
-		write_sets.push_back(std::get<0>(item).write_info());
-		write_sets.push_back(std::get<1>(item).write_info());
+		write_sets.push_back(std::get<0>(item));
+		write_sets.push_back(std::get<1>(item));
 	}
 
 	const auto bloom_link_acc = bloom_rt.link_bloom_acc();
 	for (const auto& item : bloom_link_acc)
 	{
-		write_sets.push_back(std::get<0>(item).write_info());
-		write_sets.push_back(std::get<1>(item).write_info());
-		write_sets.push_back(std::get<2>(item).write_info());
+		write_sets.push_back(std::get<0>(item));
+		write_sets.push_back(std::get<1>(item));
+		write_sets.push_back(std::get<2>(item));
 	}
 
 	const auto fxaa_link_composite = fxaa_rt.link_composite(composite_rt);
 	const auto fxaa_link_buffer    = fxaa_rt.update_uniform(Fxaa_pipeline::Params(env.swapchain.extent));
 
-	write_sets.push_back(fxaa_link_composite.write_info());
-	write_sets.push_back(fxaa_link_buffer.write_info());
+	write_sets.push_back(fxaa_link_composite);
+	write_sets.push_back(fxaa_link_buffer);
 
 	env.device->updateDescriptorSets(write_sets, {});
 }
@@ -841,18 +807,18 @@ void Render_target_set::update(
 	const auto shadow_update = shadow_rt.update_uniform(shadow_matrices);
 
 	std::array<vk::WriteDescriptorSet, csm_count> shadow_update_info;
-	for (auto i : Range(csm_count)) shadow_update_info[i] = shadow_update[i].write_info();
+	for (auto i : Range(csm_count)) shadow_update_info[i] = shadow_update[i];
 
-	const auto gbuffer_update      = gbuffer_rt.update_uniform(gbuffer_camera);
-	const auto gbuffer_update_info = gbuffer_update.write_info();
+	const auto gbuffer_update = gbuffer_rt.update_uniform(gbuffer_camera);
 
-	const auto lighting_update      = lighting_rt.update_uniform(lighting_param);
-	const auto lighting_update_info = lighting_update.write_info();
+	const auto lighting_update = lighting_rt.update_uniform(lighting_param);
 
-	const auto composite_update      = composite_rt.update_uniform(composite_exposure_param);
-	const auto composite_update_info = composite_update.write_info();
+	const auto composite_update = composite_rt.update_uniform(composite_exposure_param);
 
-	const auto update_info = utility::join_array(shadow_update_info, std::to_array({gbuffer_update_info, lighting_update_info, composite_update_info}));
+	const auto update_info = utility::join_array(
+		shadow_update_info,
+		std::to_array<vk::WriteDescriptorSet>({gbuffer_update, lighting_update, composite_update})
+	);
 
 	env.device->updateDescriptorSets(update_info, {});
 }
@@ -909,11 +875,11 @@ void Render_targets::link(const Environment& env)
 
 	std::vector<vk::WriteDescriptorSet> auto_exposure_write_infos;
 
-	for (const auto& item : std::get<0>(auto_exposure_link_lighting)) auto_exposure_write_infos.push_back(item.write_info());
+	for (const auto& item : std::get<0>(auto_exposure_link_lighting)) auto_exposure_write_infos.push_back(item);
 
-	for (const auto& item : std::get<1>(auto_exposure_link_lighting)) auto_exposure_write_infos.push_back(item.write_info());
+	for (const auto& item : std::get<1>(auto_exposure_link_lighting)) auto_exposure_write_infos.push_back(item);
 
-	for (const auto& item : auto_exposure_link_self) auto_exposure_write_infos.push_back(item.write_info());
+	for (const auto& item : auto_exposure_link_self) auto_exposure_write_infos.push_back(item);
 
 	env.device->updateDescriptorSets(auto_exposure_write_infos, {});
 }

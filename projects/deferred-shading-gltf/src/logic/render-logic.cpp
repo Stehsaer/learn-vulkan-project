@@ -430,11 +430,12 @@ void App_render_logic::update_uniforms(uint32_t idx)
 	const auto lighting_write  = core->render_targets.render_target_set[idx].lighting_rt.update_uniform(lighting_params);
 	const auto composite_write = core->render_targets.render_target_set[idx].composite_rt.update_uniform(composite_param);
 	const auto shadow_write    = core->render_targets.render_target_set[idx].shadow_rt.update_uniform(shadow_uniforms);
+
 	std::array<vk::WriteDescriptorSet, csm_count> shadow_update_info;
-	for (auto i : Range(csm_count)) shadow_update_info[i] = shadow_write[i].write_info();
+	for (auto i : Range(csm_count)) shadow_update_info[i] = shadow_write[i];
 
 	const auto write_sets = utility::join_array(
-		std::to_array({lighting_write.write_info(), composite_write.write_info(), gbuffer_update.write_info()}),
+		std::to_array<vk::WriteDescriptorSet>({lighting_write, composite_write, gbuffer_update}),
 		shadow_update_info
 	);
 

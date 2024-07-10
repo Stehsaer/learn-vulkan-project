@@ -25,6 +25,9 @@ const float[] search_step = float[](1,1.5,2,4,12);
 #define MODE_FXAA_1_IMPROVED 2
 #define MODE_FXAA_3 3
 
+ivec2 fragcoord = ivec2(floor(gl_FragCoord.xy));
+vec2 fragcoord_f = gl_FragCoord.xy;
+
 float luma(in vec3 color)
 {
 	return dot(color, vec3(0.21, 0.72, 0.07));
@@ -32,7 +35,12 @@ float luma(in vec3 color)
 
 vec3 get_color(vec2 offset)
 {
-	return textureLod(input_tex, gl_FragCoord.xy + offset, 0.0).rgb;
+	return textureLod(input_tex, fragcoord_f + offset, 0.0).rgb;
+}
+
+vec3 fetch_color(ivec2 offset)
+{
+	return texelFetch(input_tex, fragcoord + offset, 0).rgb;
 }
 
 vec3 fxaa_1_original()
@@ -132,98 +140,97 @@ vec3 fxaa_1_improved()
 
 vec3 fxaa_3_quality()
 {
-	vec3 colM = get_color(vec2(0, 0)), 
-		colN = get_color(vec2(0, 1)),
-		colE = get_color(vec2(1, 0)),
-		colS = get_color(vec2(0, -1)),
-		colW = get_color(vec2(-1, 0));
+	const vec3 colM = fetch_color(ivec2(0, 0)), 
+		colN = fetch_color(ivec2(0, 1)),
+		colE = fetch_color(ivec2(1, 0)),
+		colS = fetch_color(ivec2(0, -1)),
+		colW = fetch_color(ivec2(-1, 0));
 
-	float lumaM = luma(colM),
+	const float lumaM = luma(colM),
 		lumaN = luma(colN),
 		lumaE = luma(colE),
 		lumaS = luma(colS),
 		lumaW = luma(colW);
 
-	float minNS = min(lumaN, lumaS), minWE = min(lumaW, lumaE), minLuma = min(lumaM, min(minNS, minWE));
-	float maxNS = max(lumaN, lumaS), maxWE = max(lumaW, lumaE), maxLuma = max(lumaM, max(maxNS, maxWE));
-	float lumaContrast = maxLuma - minLuma;
-	float avg = (maxLuma + minLuma) / 2;
-	float lumaL = (lumaN + lumaS + lumaE + lumaW) * 0.25;
+	const float minNS = min(lumaN, lumaS), minWE = min(lumaW, lumaE), minLuma = min(lumaM, min(minNS, minWE));
+	const float maxNS = max(lumaN, lumaS), maxWE = max(lumaW, lumaE), maxLuma = max(lumaM, max(maxNS, maxWE));
+	const float lumaContrast = maxLuma - minLuma;
+	const float avg = (maxLuma + minLuma) / 2;
 
-	if(lumaContrast < max(FXAA_ABSOLUTE_LUMA_THRESHOLD, lumaM * 0.1)) return colM;
+	if(lumaContrast < FXAA_ABSOLUTE_LUMA_THRESHOLD) return colM;
 	
 	if(abs(lumaN - lumaS) < 0.05 * avg && abs(lumaW - lumaS) < 0.05 * avg)
 		return (colN + colE + colS + colW + colM) * 0.2;
 
-	float lumaNW = luma(get_color(vec2(-1, 1))),
-		lumaNE = luma(get_color(vec2(1, 1))),
-		lumaSW = luma(get_color(vec2(-1, -1))),
-		lumaSE = luma(get_color(vec2(1, -1)));
+	const float lumaNW = luma(fetch_color(ivec2(-1, 1))),
+		lumaNE = luma(fetch_color(ivec2(1, 1))),
+		lumaSW = luma(fetch_color(ivec2(-1, -1))),
+		lumaSE = luma(fetch_color(ivec2(1, -1)));
 
-	float lumaGradS = lumaS - lumaM,
+	const float lumaGradS = lumaS - lumaM,
 		lumaGradN = lumaN - lumaM,
 		lumaGradW = lumaW - lumaM,
 		lumaGradE = lumaE - lumaM;
 
-	float lumaGradH = abs(lumaNW + lumaNE - 2 * lumaN) 
+	const float lumaGradH = abs(lumaNW + lumaNE - 2 * lumaN) 
 		+ 2 * abs(lumaW + lumaE - 2 * lumaM) 
 		+ abs(lumaSW + lumaSE - 2 * lumaS); 
 
-	float lumaGradV = abs(lumaNW + lumaSW - 2 * lumaW)
+	const float lumaGradV = abs(lumaNW + lumaSW - 2 * lumaW)
 		+ 2 * abs(lumaN + lumaS - 2 * lumaM) 
 		+ abs(lumaNE + lumaSE - 2 * lumaE); 
 
 	bool isHorz = lumaGradV > lumaGradH;
 
-	vec2 normal = vec2(0, 0), search_dir = vec2(0, 0);
+	vec2 normal = vec2(0, 0);
 	vec3 blend_src;
+
+	const float delta_luma_NS = abs(lumaGradN) - abs(lumaGradS),
+		delta_luma_WE = abs(lumaGradE) - abs(lumaGradW);
 
 	if(isHorz)
 	{
-		normal.y = sign(abs(lumaGradN) - abs(lumaGradS));
-		blend_src = mix(colS, colN, (normal.y + 1) / 2);
-		search_dir.x = 1;
+		normal.y = sign(delta_luma_NS);
+		blend_src = mix(colS, colN, step(0, delta_luma_NS));
 	}
 	else
 	{
-		normal.x = sign(abs(lumaGradE) - abs(lumaGradW));
-		blend_src = mix(colW, colE, (normal.x + 1) / 2);
-		search_dir.y = 1;
+		normal.x = sign(delta_luma_WE);
+		blend_src = mix(colW, colE, step(0, delta_luma_WE));
 	}
 
-	vec2 offset = normal / 2;
-	
-	uint pos_search = 0, neg_search = 0;
-	float luma_pos, luma_neg, luma_start = luma(get_color(offset));
+	const vec2 offset = normal / 2;
+	const vec2 search_dir = normal.yx;
+
+	float luma_pos, luma_neg;
 	float pos, neg;
-	float end_thres = FXAA_SEARCH_END_THRESHOLD;
+	const float luma_start = (lumaM + luma(blend_src)) / 2;
+	const float end_thres = FXAA_SEARCH_END_THRESHOLD;
 
 	// positive direction search
-	for(; pos_search < FXAA_MAX_SEARCH_STEP; pos_search ++)
+	for(uint pos_search = 0; pos_search < FXAA_MAX_SEARCH_STEP; pos_search ++)
 	{
 		pos = search_step[pos_search];
 		luma_pos = luma(get_color(offset + search_dir * pos));
 		if(abs(luma_pos - luma_start) > end_thres) break;
 	}
 
-	for(; neg_search < FXAA_MAX_SEARCH_STEP; neg_search ++)
+	for(uint neg_search = 0; neg_search < FXAA_MAX_SEARCH_STEP; neg_search ++)
 	{
 		neg = search_step[neg_search];
 		luma_neg = luma(get_color(offset - search_dir * neg));
 		if(abs(luma_neg - luma_start) > end_thres) break;
 	}
 
-	float edge_length = pos + neg;
-	bool pos_closer = pos < neg;
+	const float edge_length = pos + neg;
+	const bool pos_closer = pos < neg;
 
-	float dst = pos_closer ? pos : neg;
-	float dst_luma = pos_closer ? luma_pos : luma_neg;
+	const float dst = pos_closer ? pos : neg;
+	const float dst_luma = pos_closer ? luma_pos : luma_neg;
 
-	float blend;
+	float blend = 0;
 	
-	if((dst_luma - luma_start) * (lumaM - luma_start) > 0)
-		blend = 0;
-	else
+	if((dst_luma - luma_start) * (lumaM - luma_start) <= 0)
 		blend = abs(0.5 - dst / edge_length);
 
 	return mix(colM, blend_src, blend);
@@ -236,7 +243,7 @@ void main()
 	switch(mode)
 	{
 		case MODE_NO_FXAA:
-			center_color = get_color(vec2(0.0));
+			center_color = fetch_color(ivec2(0));
 			break;
 		case MODE_FXAA_1_ORIGINAL:
 			center_color = fxaa_1_original();
@@ -248,7 +255,7 @@ void main()
 			center_color = fxaa_3_quality();
 			break;
 		default:
-			center_color = get_color(vec2(0.0));
+			center_color = fetch_color(ivec2(0));
 	}
 
 	out_color = vec4(center_color, 0.0);

@@ -258,7 +258,13 @@ void App_render_logic::generate_drawcalls(uint32_t idx)
 
 	// Generate Gbuffer
 	{
-		const auto gbuffer_camera_param_prev = core->params.get_gbuffer_parameter(core->env);
+		const auto gbuffer_camera_param_prev
+			= selected_camera >= 0 ? generate_param_from_gltf_camera(
+										 core->env,
+										 traverser[core->source.model->cameras[selected_camera].node_idx.value()].transform,
+										 core->source.model->cameras[selected_camera]
+									 )
+								   : core->params.get_gbuffer_parameter(core->env);
 
 		const auto gen_params = Drawcall_generator::Gen_params{
 			core->source.model.get(),
@@ -487,7 +493,13 @@ void App_render_logic::update_uniforms(uint32_t idx)
 {
 	//* Update gbuffer
 
-	gbuffer_param                     = core->params.get_gbuffer_parameter(core->env);
+	gbuffer_param = selected_camera >= 0 ? generate_param_from_gltf_camera(
+											   core->env,
+											   traverser[core->source.model->cameras[selected_camera].node_idx.value()].transform,
+											   core->source.model->cameras[selected_camera]
+										   )
+										 : core->params.get_gbuffer_parameter(core->env);
+
 	const auto gbuffer_camera_uniform = Gbuffer_pipeline::Camera_uniform{gbuffer_param.view_projection_matrix};
 
 	Lighting_pipeline::Params lighting_params{};
@@ -509,7 +521,7 @@ void App_render_logic::update_uniforms(uint32_t idx)
 			core->params.divide_projection_plane((csm_idx + 1) / 3.0f),
 			core->params.shadow_near[csm_idx],
 			core->params.shadow_far[csm_idx],
-			core->params.get_gbuffer_parameter(core->env)
+			gbuffer_param
 		);
 		shadow_uniforms[csm_idx] = Shadow_pipeline::Shadow_uniform{shadow_params[csm_idx].view_projection_matrix};
 
@@ -1343,10 +1355,6 @@ void App_render_logic::control_tab()
 {
 	auto& params = core->params;
 
-	// center camera view
-	if (ImGui::Button("Center Camera View"))
-		core->params.camera_controller.target_eye_center = (scene_min_bound + scene_max_bound) / 2.0f;
-
 	ImGui::SeparatorText("Lighting");
 	{
 		{
@@ -1564,8 +1572,6 @@ void App_render_logic::ui_logic()
 	auto&       params    = core->params;
 	const auto& swapchain = core->env.swapchain;
 
-	params.camera_controller.update(ImGui::GetIO());
-
 	ImGui::SetNextWindowPos({20, 20}, ImGuiCond_Always, {0, 0});
 	ImGui::SetNextWindowSizeConstraints({0.0f, 0.0f}, {-1.0f, swapchain.extent.height - 200.0f});
 	if (ImGui::Begin(
@@ -1585,6 +1591,12 @@ void App_render_logic::ui_logic()
 			if (ImGui::BeginTabItem("Control"))
 			{
 				control_tab();
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Camera"))
+			{
+				camera_tab();
 				ImGui::EndTabItem();
 			}
 
@@ -1689,7 +1701,7 @@ void App_render_logic::animation_tab()
 		{
 			const auto& animation = model.animations[i];
 
-			const bool selected = ImGui::Selectable(std::format("[{}] {}", i, animation.name).c_str(), selected_animation == i);
+			const bool selected = ImGui::Selectable(std::format("[{}] {}##{}", i, animation.name, i).c_str(), selected_animation == i);
 
 			if (selected)
 			{
@@ -1734,4 +1746,50 @@ void App_render_logic::animation_tab()
 			animation_start_time = now - animation_time / animation_rate;
 		}
 	}
+}
+
+void App_render_logic::camera_tab()
+{
+	const auto&       model   = *core->source.model;
+	const std::string preview = selected_camera == -1 ? "Free Camera"
+													  : std::format(
+															"[{}] {}",
+															model.cameras[selected_camera].is_ortho ? "Ortho" : "Perspective",
+															model.cameras[selected_camera].name
+														);
+
+	if (ImGui::BeginCombo("Camera", preview.c_str()))
+	{
+		// Disable option
+		if (ImGui::Selectable("Free Camera", selected_camera == -1))
+		{
+			selected_camera = -1;
+		}
+
+		// Iterate over all animations
+		for (auto i : Range<int>(model.cameras.size()))
+		{
+			const auto& camera = model.cameras[i];
+
+			const bool selected = ImGui::Selectable(
+				std::format("[{}] {}##{}", camera.is_ortho ? "Ortho" : "Perspective", camera.name, i).c_str(),
+				selected_camera == i
+			);
+
+			if (selected)
+			{
+				selected_camera = i;
+			}
+		}
+
+		ImGui::EndCombo();
+	}
+
+	if (selected_camera >= 0) return;
+
+	ImGui::SeparatorText("Free Camera Control");
+
+	// center camera view
+	if (ImGui::Button("Center Camera View"))
+		core->params.camera_controller.target_eye_center = (scene_min_bound + scene_max_bound) / 2.0f;
 }

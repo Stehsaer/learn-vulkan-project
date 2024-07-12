@@ -51,7 +51,3 @@ EmptyLineBeforeAccessModifier: Always
 UseTab: ForContinuationAndIndentation
 FixNamespaceComments: false
 NamespaceIndentation: All
-
-# Penalties
-PenaltyBreakAssignment: 0
-# Standard: auto

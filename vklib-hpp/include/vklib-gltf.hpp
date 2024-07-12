@@ -372,6 +372,35 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		void set_transformation(float time, const std::function<Node_transformation&(uint32_t)>& func) const;
 	};
 
+	struct Camera
+	{
+		float znear = 0.01, zfar;
+
+		std::string name;
+
+		struct Ortho
+		{
+			float xmag, ymag;
+		};
+
+		struct Perspective
+		{
+			float yfov, aspect_ratio;
+		};
+
+		union
+		{
+			Ortho       ortho;
+			Perspective perspective;
+		};
+
+		bool is_ortho;
+
+		std::optional<uint32_t> node_idx;
+
+		Camera(const tinygltf::Camera& camera);
+	};
+
 	class Model
 	{
 	  public:
@@ -385,6 +414,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		std::vector<Scene>        scenes;
 		std::vector<Animation>    animations;
 		std::vector<Skin>         skins;
+		std::vector<Camera>       cameras;
 
 		Descriptor_pool material_descriptor_pool;
 
@@ -416,6 +446,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		void load_all_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 		void load_all_animations(const tinygltf::Model& model);
 		void load_all_skins(const tinygltf::Model& model);
+		void load_all_cameras(const tinygltf::Model& model);
 
 		void generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context);
 
@@ -426,7 +457,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 // Implementations
 namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 {
-
 	template <Vec3_or_quat T>
 	T Animation_sampler<T>::operator[](float time) const
 	{

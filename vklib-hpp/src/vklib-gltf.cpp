@@ -956,11 +956,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		nodes.reserve(model.nodes.size());
 
 		// iterates over all nodes
-		for (const auto& node : model.nodes)
+		for (auto idx : Range(model.nodes.size()))
 		{
+			const auto& node = model.nodes[idx];
+
 			Node output;
 			output.set(node);
 			nodes.push_back(std::move(output));
+
+			// has camera
+			if (node.camera >= 0) cameras[node.camera].node_idx = idx;
 		}
 	}
 
@@ -1163,6 +1168,15 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		}
 	}
 
+	void Model::load_all_cameras(const tinygltf::Model& model)
+	{
+		cameras.reserve(model.cameras.size());
+		for (const auto& camera : model.cameras)
+		{
+			cameras.emplace_back(camera);
+		}
+	}
+
 	void Model::generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context)
 	{
 		const Command_buffer command(loader_context.command_pool);
@@ -1226,6 +1240,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		loader_context.transfer_queue.submit(vk::SubmitInfo().setCommandBuffers(submit_buffer));
 
 		// parse scenes & nodes
+		load_all_cameras(gltf_model);
 		load_all_scenes(gltf_model);
 		load_all_nodes(gltf_model);
 		load_all_animations(gltf_model);
@@ -1998,4 +2013,32 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	}
 
 #pragma endregion
+
+	Camera::Camera(const tinygltf::Camera& camera) :
+		name(camera.name)
+	{
+		if (camera.type == "perspective")
+		{
+			is_ortho = false;
+
+			const auto& cam = camera.perspective;
+
+			std::tie(znear, zfar, perspective.yfov, perspective.aspect_ratio)
+				= std::tuple(cam.znear, cam.zfar, cam.yfov, cam.aspectRatio);
+		}
+		else if (camera.type == "orthographic")
+		{
+			is_ortho = true;
+
+			const auto& cam = camera.orthographic;
+
+			std::tie(znear, zfar, ortho.xmag, ortho.ymag) = std::tuple(cam.znear, cam.zfar, cam.xmag, cam.ymag);
+		}
+		else
+			throw Gltf_spec_violation(
+				"Invalid camera mode",
+				std::format(R"(Invalid camera mode "{}" found in camera "{}")", camera.type, camera.name),
+				"5.12.3. camera.type"
+			);
+	}
 }

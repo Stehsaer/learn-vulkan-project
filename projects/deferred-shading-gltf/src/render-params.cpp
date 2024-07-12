@@ -337,6 +337,98 @@ glm::vec3 Render_params::get_light_direction() const
 	return get_sunlight_direction(sun.yaw, sun.pitch);
 }
 
+Camera_parameter generate_param_from_gltf_camera(
+	const Environment&            env,
+	const glm::mat4&              transform,
+	const io::mesh::gltf::Camera& camera
+)
+{
+	const auto aspect_ratio = env.swapchain.extent.width / (float)env.swapchain.extent.height;
+
+	if (camera.is_ortho)
+	{
+		const auto projection_matrix = glm::ortho(
+			-camera.ortho.ymag * aspect_ratio / 2,
+			camera.ortho.ymag * aspect_ratio / 2,
+			-camera.ortho.ymag / 2,
+			camera.ortho.ymag / 2,
+			camera.znear,
+			camera.zfar
+		);
+
+		const auto view_matrix = glm::inverse(transform);  // World Space -> Node (Camera) Space
+
+		const auto view_projection     = projection_matrix * view_matrix;  // World Space -> Camera Perspective
+		const auto view_projection_inv = glm::inverse(view_projection);    // Camera Perspective -> World Space
+
+		auto camera_front = view_projection_inv * glm::vec4(0, 0, 1, 1);
+		camera_front /= camera_front.w;
+
+		auto camera_up = view_projection_inv * glm::vec4(0, 1, 0, 1);
+		camera_up /= camera_up.w;
+
+		auto camera_position = view_projection_inv * glm::vec4(0, 0, 0, 1);
+		camera_position /= camera_up.w;
+
+		camera_front -= camera_position;
+		camera_up -= camera_position;
+
+		camera_front = glm::normalize(camera_front);
+		camera_up    = glm::normalize(camera_up);
+
+		const auto frustum = algorithm::geometry::frustum::Frustum::from_ortho(
+			camera_position,
+			camera_front,
+			camera_up,
+			-camera.ortho.ymag * aspect_ratio / 2,
+			camera.ortho.ymag * aspect_ratio / 2,
+			-camera.ortho.ymag / 2,
+			camera.ortho.ymag / 2,
+			camera.znear,
+			camera.zfar
+		);
+
+		return {frustum, view_matrix, projection_matrix, camera_position, camera_front};
+	}
+	else
+	{
+		// Camera View -> Camera Perspective
+		const auto projection_matrix = glm::perspective(camera.perspective.yfov, aspect_ratio, camera.znear, camera.zfar);
+
+		const auto view_matrix = glm::inverse(transform);  // World Space -> Node (Camera) Space
+
+		const auto view_projection     = projection_matrix * view_matrix;  // World Space -> Camera Perspective
+		const auto view_projection_inv = glm::inverse(view_projection);    // Camera Perspective -> World Space
+
+		auto camera_front = view_projection_inv * glm::vec4(0, 0, 1, 1);
+		camera_front /= camera_front.w;
+
+		auto camera_up = view_projection_inv * glm::vec4(0, 1, 0, 1);
+		camera_up /= camera_up.w;
+
+		auto camera_position = view_projection_inv * glm::vec4(0, 0, 0, 1);
+		camera_position /= camera_up.w;
+
+		camera_front -= camera_position;
+		camera_up -= camera_position;
+
+		camera_front = glm::normalize(camera_front);
+		camera_up    = glm::normalize(camera_up);
+
+		const auto frustum = algorithm::geometry::frustum::Frustum::from_projection(
+			camera_position,
+			camera_front,
+			camera_up,
+			aspect_ratio,
+			camera.perspective.yfov,
+			camera.znear,
+			camera.zfar
+		);
+
+		return {frustum, view_matrix, projection_matrix, camera_position, camera_front};
+	}
+}
+
 Shadow_parameter Render_params::get_shadow_parameters(
 	float                   near,
 	float                   far,

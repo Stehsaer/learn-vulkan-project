@@ -145,6 +145,7 @@ class App_render_logic : public Application_logic_base
 	void system_tab();     // System panel
 	void animation_tab();  // Animation panel, only activate if animation present
 	void preset_tab();     // Debug panel
+	void camera_tab();     // Camera panel
 
 	bool show_panel = true;
 
@@ -157,6 +158,8 @@ class App_render_logic : public Application_logic_base
 
 	void update_animation();  // Update animation
 	void upload_skin(uint32_t idx);
+
+	int selected_camera = -1;
 
 	std::string exported_preset_json;
 

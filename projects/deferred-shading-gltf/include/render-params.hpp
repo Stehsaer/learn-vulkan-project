@@ -77,6 +77,12 @@ struct Camera_parameter
 	}
 };
 
+Camera_parameter generate_param_from_gltf_camera(
+	const Environment&            env,
+	const glm::mat4&              transform,
+	const io::mesh::gltf::Camera& camera
+);
+
 struct Shadow_parameter : public Camera_parameter
 {
 	glm::vec2 shadow_view_size;

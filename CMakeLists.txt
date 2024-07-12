@@ -62,11 +62,13 @@ function(copy_dependency dependent target)
 endfunction()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-find_program(CLANG_TIDY_BIN NAMES "clang-tidy")
 
-if((CMAKE_BUILD_TYPE MATCHES Debug) AND NOT MSVC)
+find_program(CLANG_TIDY_BIN NAMES "clang-tidy")
+set(DISABLE_CLANG_TIDY OFF)
+
+if((CMAKE_BUILD_TYPE MATCHES Debug) AND NOT DISABLE_CLANG_TIDY)
 	if(CLANG_TIDY_BIN)
-		set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_BIN}" "-checks=-*,misc-const-correctness,misc-definitions-in-headers,clang-analyzer-core.NullDereference,clang-analyzer-cplusplus.Move,clang-analyzer-core.NullDereference,clang-analyzer-core.uninitialized.*,misc-throw-by-value-catch-by-reference")
+		set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_BIN}" "-checks=-*,misc-const-correctness,misc-definitions-in-headers,clang-analyzer-core.NullDereference,clang-analyzer-cplusplus.Move,clang-analyzer-core.NullDereference,clang-analyzer-core.uninitialized.*,misc-throw-by-value-catch-by-reference,bugprone-unhandled-self-assignment")
 	endif()
 endif()
 

@@ -88,17 +88,29 @@ class App_render_logic : public Application_logic_base
 	std::array<Shadow_parameter, csm_count> shadow_params;
 	Camera_parameter                        gbuffer_param;
 
+	Node_traverser traverser;
+
 	// Vulkan Objects
 
 	struct Command_buffer_set
 	{
-		Command_buffer gbuffer_command_buffer, shadow_command_buffer, lighting_command_buffer, compute_command_buffer,
-			composite_command_buffer;
+		Command_buffer animation_update_command_buffer, gbuffer_command_buffer, shadow_command_buffer, lighting_command_buffer,
+			compute_command_buffer, composite_command_buffer;
+
+		Command_buffer_set(const Command_pool& pool)
+		{
+			animation_update_command_buffer = {pool};
+			gbuffer_command_buffer          = {pool};
+			shadow_command_buffer           = {pool};
+			lighting_command_buffer         = {pool};
+			compute_command_buffer          = {pool};
+			composite_command_buffer        = {pool};
+		}
 	};
 
 	std::vector<Command_buffer_set> command_buffers;
 
-	Semaphore gbuffer_semaphore, shadow_semaphore, composite_semaphore, compute_semaphore, lighting_semaphore;
+	Semaphore copy_buffer_semaphore, gbuffer_shadow_semaphore, composite_semaphore, compute_semaphore, lighting_semaphore;
 
 	/* Draw Logic */
 
@@ -122,7 +134,7 @@ class App_render_logic : public Application_logic_base
 	void draw_swapchain(uint32_t idx, const Command_buffer& command_buffer);
 
 	// Submit commands to queues
-	void submit_commands(const Command_buffer_set& set);
+	void submit_commands(const Command_buffer_set& set) const;
 
 	/* UI-related */
 
@@ -144,6 +156,7 @@ class App_render_logic : public Application_logic_base
 	double animation_start_time = 0.0;
 
 	void update_animation();  // Update animation
+	void upload_skin(uint32_t idx);
 
 	std::string exported_preset_json;
 

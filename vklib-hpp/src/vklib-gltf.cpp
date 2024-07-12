@@ -9,6 +9,43 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	namespace data_parser
 	{
+		struct Parse_error : public Exception
+		{
+			Parse_error(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
+				Exception(std::format("(General Gltf Data Parser Error) {}", msg), {}, loc)
+			{
+			}
+		};
+
+		template <typename T>
+		std::vector<T> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
+
+		template <>
+		std::vector<uint32_t> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
+
+		template <>
+		std::vector<uint16_t> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
+
+		template <typename T>
+		concept Glm_float_type = utility::glm_type_check::check_glm_type<T, float>();
+
+		template <typename T>
+		concept Glm_u16_type = utility::glm_type_check::check_glm_type<T, uint16_t>();
+
+		// Acquire data in accessor of type T, which is made of arbitrary number of `float` components.
+		// `T` must be float or any of the glm genTypes.
+		template <Glm_float_type T>
+		std::vector<T> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
+
+		template <Glm_u16_type T>
+		std::vector<T> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
+
+		// Acquire data in accessor.
+		// `T` must be float or any of the glm genTypes.
+		// This function provides extra ability to decode normalized data to float according to glTF Spec.
+		template <Glm_float_type T>
+		std::vector<T> acquire_normalized_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
+
 		template <>
 		std::vector<uint32_t> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
 		{
@@ -45,6 +82,245 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			}
 			default:
 				throw Parse_error(std::format("Data type incompatible with uint32: {}", accessor.componentType));
+			}
+
+			return dst;
+		}
+
+		template <>
+		std::vector<uint16_t> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
+		{
+			std::vector<uint16_t> dst;
+
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			const auto& buffer      = model.buffers[buffer_view.buffer];
+
+			const void* ptr = buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset;
+			dst.resize(accessor.count);
+
+			auto assign_data = [&](const auto* ptr)
+			{
+				std::copy(ptr, ptr + accessor.count, dst.begin());
+			};
+
+			switch (accessor.componentType)
+			{
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+			{
+				assign_data((const uint8_t*)ptr);
+				break;
+			}
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+			{
+				assign_data((const uint16_t*)ptr);
+				break;
+			}
+			default:
+				throw Parse_error(std::format("Data type incompatible with uint16: {}", accessor.componentType));
+			}
+
+			return dst;
+		}
+
+		template <Glm_float_type T>
+		std::vector<T> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
+		{
+			std::vector<T> dst;
+
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			const auto& buffer      = model.buffers[buffer_view.buffer];
+
+			const auto* ptr = reinterpret_cast<const T*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
+			dst.resize(accessor.count);
+
+			if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT)
+				throw Parse_error(std::format("Data type incompatible with float32: {}", accessor.componentType));
+
+			if (buffer_view.byteStride == 0)
+			{
+				std::copy(ptr, ptr + accessor.count, dst.begin());
+			}
+			else
+			{
+				for (auto i : Range(accessor.count))
+				{
+					const auto* src_ptr = (const T*)((const uint8_t*)ptr + i * buffer_view.byteStride);
+
+					dst[i] = *src_ptr;
+				}
+			}
+
+			return dst;
+		}
+
+		template <Glm_u16_type T>
+		std::vector<T> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
+		{
+			std::vector<T> dst;
+
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			const auto& buffer      = model.buffers[buffer_view.buffer];
+
+			const auto* ptr = reinterpret_cast<const T*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
+			dst.resize(accessor.count);
+
+			if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE
+				&& accessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
+				throw Parse_error(std::format("Data type incompatible with uint16: {}", accessor.componentType));
+
+			if (buffer_view.byteStride == 0)
+			{
+				switch (accessor.componentType)
+				{
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+				{
+					const auto* dptr = (const uint8_t*)ptr;
+					std::copy(dptr, dptr + accessor.count * (sizeof(T) / sizeof(uint8_t)), (uint16_t*)dst.data());
+					break;
+				}
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+					std::copy(ptr, ptr + accessor.count, dst.data());
+					break;
+				default:
+					break;
+				}
+			}
+			else
+			{
+				switch (accessor.componentType)
+				{
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+				{
+					for (auto i : Range(accessor.count))
+					{
+						const auto* src_ptr = (const uint8_t*)ptr + buffer_view.byteStride * i;
+						auto*       dst_ptr = (uint16_t*)&dst[i];
+
+						for (auto offset : Range(sizeof(T) / sizeof(uint16_t)))
+						{
+							dst_ptr[offset] = *src_ptr;
+						}
+					}
+					break;
+				}
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+				{
+					for (auto i : Range(accessor.count))
+					{
+						const auto* src_ptr = reinterpret_cast<const T*>((const uint8_t*)ptr + buffer_view.byteStride * i);
+
+						dst[i] = *src_ptr;
+					}
+					break;
+				}
+				default:
+					break;
+				}
+			}
+
+			return dst;
+		}
+
+		template <Glm_float_type T>
+		std::vector<T> acquire_normalized_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
+		{
+			std::vector<T> dst;
+
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			const auto& buffer      = model.buffers[buffer_view.buffer];
+
+			const auto* ptr = buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset;
+
+			dst.resize(accessor.count);
+
+			static constexpr auto supported_formats = std::to_array(
+				{TINYGLTF_COMPONENT_TYPE_FLOAT,
+				 TINYGLTF_COMPONENT_TYPE_BYTE,
+				 TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE,
+				 TINYGLTF_COMPONENT_TYPE_SHORT,
+				 TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT}
+			);
+
+			if (std::count(supported_formats.begin(), supported_formats.end(), accessor.componentType) == 0)
+				throw Parse_error(std::format("Data type incompatible with float32: {}", accessor.componentType));
+
+			auto copy_to_dst = [&]<typename Ty>(const Ty* ptr, auto transformation)
+			{
+				if (buffer_view.byteStride == 0)
+				{
+					for (auto i : Range(sizeof(T) / sizeof(float) * accessor.count))
+						*(reinterpret_cast<float*>(dst.data()) + i) = transformation(ptr[i]);
+				}
+				else
+				{
+					for (auto i : Range(accessor.count))
+					{
+						const auto* src_ptr = (const uint8_t*)ptr + i * buffer_view.byteStride;
+
+						for (auto offset : Range(sizeof(T) / sizeof(float)))
+						{
+							reinterpret_cast<float*>(dst.data() + i)[offset]
+								= transformation(reinterpret_cast<const Ty*>(src_ptr)[offset]);
+						}
+					}
+				}
+			};
+
+			switch (accessor.componentType)
+			{
+			case TINYGLTF_COMPONENT_TYPE_FLOAT:
+			{
+				auto transformation = [](float val) -> float
+				{
+					return val;
+				};
+				copy_to_dst((const float*)ptr, transformation);
+				break;
+			}
+
+			case TINYGLTF_COMPONENT_TYPE_BYTE:
+			{
+				auto transformation = [](int8_t val) -> float
+				{
+					return std::max(val / 127.0, -1.0);
+				};
+				copy_to_dst((const int8_t*)ptr, transformation);
+				break;
+			}
+
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+			{
+				auto transformation = [](uint8_t val) -> float
+				{
+					return val / 255.0;
+				};
+				copy_to_dst((const uint8_t*)ptr, transformation);
+				break;
+			}
+
+			case TINYGLTF_COMPONENT_TYPE_SHORT:
+			{
+				auto transformation = [](int16_t val) -> float
+				{
+					return std::max(val / 32767.0, -1.0);
+				};
+				copy_to_dst((const int16_t*)ptr, transformation);
+				break;
+			}
+
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+			{
+				auto transformation = [](uint16_t val) -> float
+				{
+					return val / 65535.0;
+				};
+				copy_to_dst((const uint16_t*)ptr, transformation);
+				break;
+			}
 			}
 
 			return dst;
@@ -88,8 +364,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		transformation.set(node);
 
-		mesh_idx = node.mesh;
+		mesh_idx = to_optional(node.mesh);
 		name     = node.name;
+		skin_idx = to_optional(node.skin);
 
 		children.resize(node.children.size());
 		std::copy(node.children.begin(), node.children.end(), children.begin());
@@ -99,6 +376,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 #pragma region "Model"
 
+	static const void* get_buffer_data(const tinygltf::Model& model, uint32_t accessor_idx)
+	{
+		const auto& accessor    = model.accessors[accessor_idx];
+		const auto& buffer_view = model.bufferViews[accessor.bufferView];
+		const auto& buffer      = model.buffers[buffer_view.buffer];
+		const auto* buffer_data = buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset;
+
+		return buffer_data;
+	}
+
 	Primitive Model::parse_primitive(
 		const tinygltf::Model&     model,
 		const tinygltf::Primitive& primitive,
@@ -106,134 +393,340 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	)
 	{
 		Primitive output_primitive;
-		output_primitive.material_idx = primitive.material;
+		output_primitive.material_idx = to_optional(primitive.material);
 
-		// Vertices
+		// Vertex Attributes
+		const auto find_position = primitive.attributes.find("POSITION"), find_normal = primitive.attributes.find("NORMAL"),
+				   find_uv = primitive.attributes.find("TEXCOORD_0"), find_tangent = primitive.attributes.find("TANGENT");
 
-		auto find_position = primitive.attributes.find("POSITION"), find_normal = primitive.attributes.find("NORMAL"),
-			 find_uv = primitive.attributes.find("TEXCOORD_0"), find_tangent = primitive.attributes.find("TANGENT");
+		// Skin Attributes
+		const auto find_weight = primitive.attributes.find("WEIGHTS_0"), find_joints = primitive.attributes.find("JOINTS_0");
 
 		if (auto end = primitive.attributes.end(); find_position == end)
 		{
-			throw Exception("Missing Required Attribute: POSITION");
+			output_primitive.enabled = false;
+			return output_primitive;
 		}
+
+		//[ERR] GLTF Spec: A vertex must contains or NOT contains `WEIGHTS_0` and `JOINTS_0` simutaneously
+		if (auto end = primitive.attributes.end(); (find_weight != end) ^ (find_joints != end))
+			throw Gltf_spec_violation(
+				"Attribute Missing",
+				"Missing One of the Attributes: WEIGHTS_0 or JOINTS_0. Gltf specifies: For a given primitive, the number of JOINTS_n "
+				"attribute sets MUST be equal to the number of WEIGHTS_n attribute sets.",
+				"3.7.3.3. Skinned Mesh Attributes"
+			);
 
 		const bool has_indices = primitive.indices >= 0, has_texcoord = find_uv != primitive.attributes.end(),
 				   has_normal = find_normal != primitive.attributes.end(), has_tangent = find_tangent != primitive.attributes.end();
 
+		const bool has_skin = find_weight != primitive.attributes.end() && find_joints != primitive.attributes.end();
+
+		// Get indices
 		std::vector<uint32_t> indices;
 		if (has_indices) indices = data_parser::acquire_accessor<uint32_t>(model, primitive.indices);
 
 		uint32_t vertex_count = has_indices ? indices.size() : model.accessors[find_position->second].count;
 
-		auto parse_data_no_index = [=]<typename T>(std::vector<T>& list, const void* data)
-		{
-			const auto* dat = reinterpret_cast<const T*>(data);
+		/* Data Parsing Function */
 
-			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
+		auto parse_data_no_index = [&]<typename T>(std::vector<T>& list, uint32_t accessor_idx, const T* optional_data = nullptr)
+		{
+			const auto* dat         = optional_data == nullptr ? (const T*)get_buffer_data(model, accessor_idx) : optional_data;
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+
+			if (optional_data || buffer_view.byteStride == 0)
 			{
-				list.resize(list.size() + vertex_count);
-				std::copy(dat, dat + vertex_count, list.begin() + list.size() - vertex_count);
-			}
-			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
-			{
-				for (auto item : Range(vertex_count - 2))
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					list.emplace_back(dat[item]);
-					list.emplace_back(dat[item + 1]);
-					list.emplace_back(dat[item + 2]);
+					list.resize(list.size() + vertex_count);
+					std::copy(dat, dat + vertex_count, list.begin() + list.size() - vertex_count);
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					list.reserve(list.size() + vertex_count);
+
+					for (auto item : Range(vertex_count - 2))
+					{
+						list.emplace_back(dat[item]);
+						list.emplace_back(dat[item + 1]);
+						list.emplace_back(dat[item + 2]);
+					}
+
+					return;
 				}
 			}
 			else
-				throw Exception("Unsupported TinyGLTF Vertex Mode");
-		};
-
-		auto parse_data_with_index = [=]<typename T>(std::vector<T>& list, const void* data)
-		{
-			const auto* dat = reinterpret_cast<const T*>(data);
-
-			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 			{
-				for (auto i : Range(vertex_count))
+				list.reserve(list.size() + vertex_count);
+
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					list.emplace_back(dat[indices[i]]);
+					for (auto idx : Range(vertex_count))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
+						list.emplace_back(*((const T*)src_ptr));
+					}
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					for (auto idx : Range(vertex_count - 2))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
+						list.emplace_back(*((const T*)src_ptr));
+
+						src_ptr += buffer_view.byteStride;
+						list.emplace_back(*((const T*)src_ptr));
+
+						src_ptr += buffer_view.byteStride;
+						list.emplace_back(*((const T*)src_ptr));
+					}
+
+					return;
 				}
 			}
-			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+
+			throw Gltf_parse_error(
+				"Unsupported TinyGLTF Vertex Mode",
+				"The parser only supports Triangle Strip and Triange List by now."
+			);
+		};
+
+		auto parse_data_with_index = [&]<typename T>(std::vector<T>& list, uint32_t accessor_idx, const T* optional_data = nullptr)
+		{
+			const auto* dat         = optional_data == nullptr ? (const T*)get_buffer_data(model, accessor_idx) : optional_data;
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			list.reserve(list.size() + vertex_count);
+
+			if (optional_data || buffer_view.byteStride == 0)
 			{
-				for (auto item : Range(vertex_count - 2))
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					list.emplace_back(dat[indices[item]]);
-					list.emplace_back(dat[indices[item + 1]]);
-					list.emplace_back(dat[indices[item + 2]]);
+					for (auto i : Range(vertex_count))
+					{
+						list.emplace_back(dat[indices[i]]);
+					}
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					for (auto item : Range(vertex_count - 2))
+					{
+						list.emplace_back(dat[indices[item]]);
+						list.emplace_back(dat[indices[item + 1]]);
+						list.emplace_back(dat[indices[item + 2]]);
+					}
+
+					return;
 				}
 			}
 			else
-				throw Exception("Unsupported TinyGLTF Vertex Mode");
-		};
-
-		auto parse_tangent_data_no_index = [=](std::vector<glm::vec3>& list, const void* data)
-		{
-			const auto* dat = reinterpret_cast<const glm::vec4*>(data);
-
-			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 			{
-				for (auto item : Range(vertex_count))
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					list.emplace_back(dat[item] * dat[item].w);
+					for (auto idx : Range(vertex_count))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
+						list.emplace_back(*((const T*)src_ptr));
+					}
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					for (auto idx : Range(vertex_count - 2))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
+						list.emplace_back(*((const T*)src_ptr));
+
+						src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx + 1];
+						list.emplace_back(*((const T*)src_ptr));
+
+						src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx + 2];
+						list.emplace_back(*((const T*)src_ptr));
+					}
+
+					return;
 				}
 			}
-			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+
+			throw Gltf_parse_error(
+				"Unsupported TinyGLTF Vertex Mode",
+				"The parser only supports Triangle Strip and Triange List by now."
+			);
+		};
+
+		auto parse_tangent_data_no_index = [&](std::vector<glm::vec3>& list, uint32_t accessor_idx)
+		{
+			using T = glm::vec4;
+
+			const auto* dat         = (const T*)get_buffer_data(model, accessor_idx);
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			list.reserve(list.size() + vertex_count);
+
+			if (buffer_view.byteStride == 0)
 			{
-				for (auto item : Range(vertex_count - 2))
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					list.emplace_back(dat[item] * dat[item].w);
-					list.emplace_back(dat[item + 1] * dat[item + 1].w);
-					list.emplace_back(dat[item + 2] * dat[item + 2].w);
+					for (auto i : Range(vertex_count))
+					{
+						list.emplace_back(dat[i] * dat[i].w);
+					}
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					for (auto item : Range(vertex_count - 2))
+					{
+						list.emplace_back(dat[item] * dat[item].w);
+						list.emplace_back(dat[item + 1] * dat[item].w);
+						list.emplace_back(dat[item + 2] * dat[item].w);
+					}
+
+					return;
 				}
 			}
 			else
-				throw Exception("Unsupported TinyGLTF Vertex Mode");
-		};
-
-		auto parse_tangent_data_with_index = [=](std::vector<glm::vec3>& list, const void* data)
-		{
-			const auto* dat = reinterpret_cast<const glm::vec4*>(data);
-
-			if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 			{
-				for (auto i : Range(vertex_count))
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					list.emplace_back(dat[indices[i]] * dat[indices[i]].w);
+					for (auto idx : Range(vertex_count))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
+
+						const auto item = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+					}
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					for (auto idx : Range(vertex_count - 2))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
+
+						auto item = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+
+						src_ptr += buffer_view.byteStride;
+						item = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+
+						src_ptr += buffer_view.byteStride;
+						item = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+					}
+
+					return;
 				}
 			}
-			else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+
+			throw Gltf_parse_error(
+				"Unsupported TinyGLTF Vertex Mode",
+				"The parser only supports Triangle Strip and Triange List by now."
+			);
+		};
+
+		auto parse_tangent_data_with_index = [&](std::vector<glm::vec3>& list, uint32_t accessor_idx)
+		{
+			using T = glm::vec4;
+
+			const auto* dat         = (const T*)get_buffer_data(model, accessor_idx);
+			const auto& accessor    = model.accessors[accessor_idx];
+			const auto& buffer_view = model.bufferViews[accessor.bufferView];
+			list.reserve(list.size() + vertex_count);
+
+			if (buffer_view.byteStride == 0)
 			{
-				for (auto item : Range(vertex_count - 2))
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					list.emplace_back(dat[indices[item]] * dat[indices[item]].w);
-					list.emplace_back(dat[indices[item + 1]] * dat[indices[item + 1]].w);
-					list.emplace_back(dat[indices[item + 2]] * dat[indices[item + 2]].w);
+					for (auto i : Range(vertex_count))
+					{
+						list.emplace_back(dat[indices[i]] * dat[indices[i]].w);
+					}
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					for (auto item : Range(vertex_count - 2))
+					{
+						list.emplace_back(dat[indices[item]] * dat[indices[item]].w);
+						list.emplace_back(dat[indices[item + 1]] * dat[indices[item]].w);
+						list.emplace_back(dat[indices[item + 2]] * dat[indices[item]].w);
+					}
+
+					return;
 				}
 			}
 			else
-				throw Exception("Unsupported TinyGLTF Vertex Mode");
+			{
+				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
+				{
+					for (auto idx : Range(vertex_count))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
+
+						const auto item = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+					}
+
+					return;
+				}
+				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
+				{
+					for (auto idx : Range(vertex_count - 2))
+					{
+						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
+
+						auto item = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+
+						src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx + 1];
+						item    = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+
+						src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx + 2];
+						item    = *((const T*)src_ptr);
+						list.emplace_back(item * item.w);
+					}
+
+					return;
+				}
+			}
+
+			throw Gltf_parse_error(
+				"Unsupported TinyGLTF Vertex Mode",
+				"The parser only supports Triangle Strip and Triange List by now."
+			);
 		};
 
-		// prevent empty data
-		if (mesh_context.vec3_data.empty())
+		auto parse_data = [&]<typename T>(std::vector<T>& list, uint32_t accessor_idx, const T* optional_data = nullptr)
 		{
-			mesh_context.vec3_data.emplace_back();
-			mesh_context.vec3_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec3));
-		}
-		if (mesh_context.vec2_data.empty())
-		{
-			mesh_context.vec2_data.emplace_back();
-			mesh_context.vec2_data.back().reserve(Mesh_data_context::max_single_size / sizeof(glm::vec2));
-		}
+			if (has_indices)
+				parse_data_with_index(list, accessor_idx, optional_data);
+			else
+				parse_data_no_index(list, accessor_idx, optional_data);
+		};
 
 		auto find_buffer = [&]<typename T>(std::vector<std::vector<T>>& list) -> size_t
 		{
+			if (list.empty())
+			{
+				list.emplace_back();
+				list.back().reserve(Mesh_data_context::max_single_size / sizeof(T));
+			}
+
 			// Data exceeds single block size
 			if (vertex_count * 3 * sizeof(T) > Mesh_data_context::max_single_size)
 			{
@@ -268,7 +761,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			return list.size() - 1;
 		};
 
-		// parse position. returns buffer instead of pointer --> prevent vector reallocation
+		// Position Data, returns (Buffer Index, Buffer Offset) to prevent reallocation of `std::vector`
 		const auto [position_buffer, position_offset] = [&]
 		{
 			const auto buffer_idx = find_buffer(mesh_context.vec3_data);
@@ -278,24 +771,17 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			output_primitive.position_buffer = buffer_idx;
 			output_primitive.position_offset = size;
 
-			const auto& accessor    = model.accessors[find_position->second];
-			const auto& buffer_view = model.bufferViews[accessor.bufferView];
-			const auto& buffer      = model.buffers[buffer_view.buffer];
-			const auto* buffer_data
-				= reinterpret_cast<const glm::vec3*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
+			const auto& accessor = model.accessors[find_position->second];
 
 			output_primitive.min = glm::make_vec3(accessor.minValues.data());
 			output_primitive.max = glm::make_vec3(accessor.maxValues.data());
 
-			if (has_indices)
-				parse_data_with_index(position, buffer_data);
-			else
-				parse_data_no_index(position, buffer_data);
+			parse_data(position, find_position->second);
 
 			return std::tuple{position, size};
 		}();
 
-		// parse normal
+		// Normal Data
 		const auto [normal_buffer, normal_offset] = [&]
 		{
 			const auto buffer_idx = find_buffer(mesh_context.vec3_data);
@@ -308,16 +794,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// has normal, directly parse the data
 			if (has_normal)
 			{
-				const auto& accessor    = model.accessors[find_normal->second];
-				const auto& buffer_view = model.bufferViews[accessor.bufferView];
-				const auto& buffer      = model.buffers[buffer_view.buffer];
-				const auto* buffer_data
-					= reinterpret_cast<const glm::vec3*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
-
-				if (has_indices)
-					parse_data_with_index(normal, buffer_data);
-				else
-					parse_data_no_index(normal, buffer_data);
+				parse_data(normal, find_normal->second);
 			}
 			else
 			{
@@ -340,6 +817,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			return std::tuple{normal, size};
 		}();
 
+		// UV Data
 		const auto [uv_buffer, uv_offset] = [&]
 		{
 			const auto buffer_idx = find_buffer(mesh_context.vec2_data);
@@ -352,16 +830,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// has normal, directly parse the data
 			if (has_texcoord)
 			{
-				const auto& accessor    = model.accessors[find_uv->second];
-				const auto& buffer_view = model.bufferViews[accessor.bufferView];
-				const auto& buffer      = model.buffers[buffer_view.buffer];
-				const auto* buffer_data
-					= reinterpret_cast<const glm::vec2*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
-
-				if (has_indices)
-					parse_data_with_index(uv, buffer_data);
-				else
-					parse_data_no_index(uv, buffer_data);
+				parse_data(uv, find_uv->second);
 			}
 			else
 			{
@@ -377,7 +846,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			return std::tuple{uv, size};
 		}();
 
-		// generate tangent data
+		// Tangent Data
 		{
 			const auto buffer_idx = find_buffer(mesh_context.vec3_data);
 			auto&      tangent    = mesh_context.vec3_data[buffer_idx];
@@ -388,16 +857,10 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// both tangent and normal present (see glTF Specification), directly parse the data
 			if (has_tangent && has_normal)
 			{
-				const auto& accessor    = model.accessors[find_tangent->second];
-				const auto& buffer_view = model.bufferViews[accessor.bufferView];
-				const auto& buffer      = model.buffers[buffer_view.buffer];
-				const auto* buffer_data
-					= reinterpret_cast<const glm::vec3*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
-
 				if (has_indices)
-					parse_tangent_data_with_index(tangent, buffer_data);
+					parse_tangent_data_with_index(tangent, find_tangent->second);
 				else
-					parse_tangent_data_no_index(tangent, buffer_data);
+					parse_tangent_data_no_index(tangent, find_tangent->second);
 			}
 			else
 			{
@@ -447,6 +910,42 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			}
 		}
 
+		// Skin Data
+		if (has_skin)
+		{
+			Primitive_skin skin_info;
+
+			// Parse Joint Data
+			{
+				const auto buffer_idx   = find_buffer(mesh_context.joint_data);
+				auto&      joint_buffer = mesh_context.joint_data[buffer_idx];
+				const auto size         = joint_buffer.size();
+
+				skin_info.joint_buffer = buffer_idx;
+				skin_info.joint_offset = size;
+
+				const auto joint_data = data_parser::acquire_accessor<glm::u16vec4>(model, find_joints->second);
+
+				parse_data(joint_buffer, 0, joint_data.data());
+			}
+
+			// Parse Weight Data
+			{
+				const auto buffer_idx    = find_buffer(mesh_context.weight_data);
+				auto&      weight_buffer = mesh_context.weight_data[buffer_idx];
+				const auto size          = weight_buffer.size();
+
+				skin_info.weight_buffer = buffer_idx;
+				skin_info.weight_offset = size;
+
+				const auto weight_data = data_parser::acquire_normalized_accessor<glm::vec4>(model, find_weight->second);
+
+				parse_data(weight_buffer, 0, weight_data.data());
+			}
+
+			output_primitive.skin = skin_info;
+		}
+
 		output_primitive.vertex_count = vertex_count;
 
 		return output_primitive;
@@ -461,7 +960,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		{
 			Node output;
 			output.set(node);
-			nodes.push_back(output);
+			nodes.push_back(std::move(output));
 		}
 	}
 
@@ -518,7 +1017,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 			// Set properties
 			output_material.double_sided = material.doubleSided;
-			output_material.alpha_cutoff = material.alphaCutoff;
 			output_material.name         = material.name;
 			output_material.alpha_mode = [=]
 			{
@@ -565,7 +1063,34 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			// Emissive
 			add_material(output_material.emissive_idx, material.emissiveTexture, {255, 255, 255, 255});
 
-			materials.push_back(output_material);
+			materials.push_back(std::move(output_material));
+		}
+
+		//* Generate Default Material
+		{
+			Material output_material;
+
+			const struct
+			{
+				int index = -1;
+			} placeholder;
+
+			// Normal Texture
+			add_material(output_material.normal_idx, placeholder, {127, 127, 255, 0});
+
+			// Albedo
+			add_material(output_material.albedo_idx, placeholder, {255, 255, 255, 255});
+
+			// PBR
+			add_material(output_material.metal_roughness_idx, placeholder, {255, 255, 255, 255});
+
+			// Occlusion
+			add_material(output_material.occlusion_idx, placeholder, {255, 255, 255, 255});
+
+			// Emissive
+			add_material(output_material.emissive_idx, placeholder, {255, 255, 255, 255});
+
+			materials.push_back(std::move(output_material));
 		}
 	}
 
@@ -580,7 +1105,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			output_scene.nodes.resize(scene.nodes.size());
 			std::copy(scene.nodes.begin(), scene.nodes.end(), output_scene.nodes.begin());
 
-			scenes.push_back(output_scene);
+			scenes.push_back(std::move(output_scene));
 		}
 	}
 
@@ -602,7 +1127,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 				output_mesh.primitives.push_back(parse_primitive(gltf_model, primitive, mesh_context));
 			}
 
-			meshes.push_back(output_mesh);
+			meshes.push_back(std::move(output_mesh));
 		}
 
 		generate_buffers(loader_context, mesh_context);
@@ -614,7 +1139,27 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		{
 			Animation output;
 			output.load(model, animation);
-			animations.push_back(output);
+			animations.push_back(std::move(output));
+		}
+	}
+
+	void Model::load_all_skins(const tinygltf::Model& model)
+	{
+		for (const auto& skin : model.skins)
+		{
+			Skin output_skin;
+
+			output_skin.joints.resize(skin.joints.size());
+			std::copy(skin.joints.begin(), skin.joints.end(), output_skin.joints.begin());
+
+			if (skin.inverseBindMatrices > 0)
+			{
+				output_skin.inverse_bind_matrices = data_parser::acquire_accessor<glm::mat4>(model, skin.inverseBindMatrices);
+			}
+			else
+				output_skin.inverse_bind_matrices = std::vector(skin.joints.size(), glm::mat4(1.0));
+
+			skins.push_back(std::move(output_skin));
 		}
 	}
 
@@ -624,61 +1169,41 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		command.begin(true);
 
-		for (const auto& buf : mesh_context.vec3_data)
+		auto generate_buffer = [&]<typename T>(const std::vector<std::vector<T>>& buffer, std::vector<Buffer>& dst) -> void
 		{
-			const auto size = buf.size() * sizeof(glm::vec3);
+			for (const auto& buf : buffer)
+			{
+				const auto size = buf.size() * sizeof(T);
 
-			const Buffer staging_buffer(
-				loader_context.allocator,
-				size,
-				vk::BufferUsageFlagBits::eTransferSrc,
-				vk::SharingMode::eExclusive,
-				VMA_MEMORY_USAGE_CPU_TO_GPU
-			);
+				const Buffer staging_buffer(
+					loader_context.allocator,
+					size,
+					vk::BufferUsageFlagBits::eTransferSrc,
+					vk::SharingMode::eExclusive,
+					VMA_MEMORY_USAGE_CPU_TO_GPU
+				);
 
-			staging_buffer << buf;
+				staging_buffer << buf;
 
-			const Buffer vertex_buffer(
-				loader_context.allocator,
-				size,
-				vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
-				vk::SharingMode::eExclusive,
-				VMA_MEMORY_USAGE_GPU_ONLY
-			);
+				const Buffer vertex_buffer(
+					loader_context.allocator,
+					size,
+					vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+					vk::SharingMode::eExclusive,
+					VMA_MEMORY_USAGE_GPU_ONLY
+				);
 
-			command.copy_buffer(vertex_buffer, staging_buffer, 0, 0, size);
+				command.copy_buffer(vertex_buffer, staging_buffer, 0, 0, size);
 
-			vec3_buffers.push_back(vertex_buffer);
-			loader_context.staging_buffers.push_back(staging_buffer);
-		}
+				loader_context.staging_buffers.push_back(staging_buffer);
+				dst.push_back(vertex_buffer);
+			}
+		};
 
-		for (const auto& buf : mesh_context.vec2_data)
-		{
-			const auto size = buf.size() * sizeof(glm::vec2);
-
-			const Buffer staging_buffer(
-				loader_context.allocator,
-				size,
-				vk::BufferUsageFlagBits::eTransferSrc,
-				vk::SharingMode::eExclusive,
-				VMA_MEMORY_USAGE_CPU_TO_GPU
-			);
-
-			staging_buffer << buf;
-
-			const Buffer vertex_buffer(
-				loader_context.allocator,
-				size,
-				vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
-				vk::SharingMode::eExclusive,
-				VMA_MEMORY_USAGE_GPU_ONLY
-			);
-
-			command.copy_buffer(vertex_buffer, staging_buffer, 0, 0, size);
-
-			vec2_buffers.push_back(vertex_buffer);
-			loader_context.staging_buffers.push_back(staging_buffer);
-		}
+		generate_buffer(mesh_context.vec3_data, vec3_buffers);
+		generate_buffer(mesh_context.vec2_data, vec2_buffers);
+		generate_buffer(mesh_context.joint_data, joint_buffers);
+		generate_buffer(mesh_context.weight_data, weight_buffers);
 
 		command.end();
 
@@ -704,6 +1229,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		load_all_scenes(gltf_model);
 		load_all_nodes(gltf_model);
 		load_all_animations(gltf_model);
+		load_all_skins(gltf_model);
 
 		loader_context.transfer_queue.waitIdle();
 		loader_context.command_buffers.clear();
@@ -1062,7 +1588,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		auto get_wrap_mode = [=](uint32_t gltf_mode)
 		{
 			const auto find = wrap_mode_lut.find(gltf_mode);
-			if (find == wrap_mode_lut.end()) throw Gltf_parse_error(std::format("{} is not a valid wrap mode", gltf_mode));
+			if (find == wrap_mode_lut.end())
+				throw Gltf_parse_error("Unknown Gltf wrap mode", std::format("{} is not a valid wrap mode", gltf_mode));
 
 			return find->second;
 		};
@@ -1373,8 +1900,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		if (animation.target_node < 0 || animation.sampler < 0) return false;
 
-		node    = animation.target_node;
-		sampler = animation.sampler;
+		node    = to_optional(animation.target_node);
+		sampler = to_optional(animation.sampler);
 
 		const static std::map<std::string, Animation_target> animation_target_lut = {
 			{"translation", Animation_target::Translation},
@@ -1421,7 +1948,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			Animation_channel output;
 			if (!output.load(channel)) continue;
 
-			auto [start, end] = get_time(output.sampler);
+			auto [start, end] = get_time(output.sampler.value());
 			start_time        = std::min(start_time, start);
 			end_time          = std::max(end_time, end);
 
@@ -1433,16 +1960,16 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		for (const auto& channel : channels)
 		{
-			const auto& sampler_variant = samplers[channel.sampler];
+			const auto& sampler_variant = samplers[channel.sampler.value()];
 
 			// check type
 			if ((sampler_variant.index() != 1 && channel.target == Animation_target::Rotation)
 				|| (sampler_variant.index() != 0 && channel.target != Animation_target::Rotation))
 			{
-				throw Animation_error("Mismatch sampler type with channel target");
+				throw Animation_runtime_error("Sampler Type Mismatch", "Mismatch sampler type with channel target");
 			}
 
-			auto& find = func(channel.node);
+			auto& find = func(channel.node.value());
 
 			switch (channel.target)
 			{

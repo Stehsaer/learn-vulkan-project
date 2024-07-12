@@ -11,22 +11,14 @@ App_render_logic::App_render_logic(std::shared_ptr<Core> resource) :
 	Application_logic_base(std::move(resource))
 {
 	// Create semaphores
-	gbuffer_semaphore   = Semaphore(core->env.device);
-	shadow_semaphore    = Semaphore(core->env.device);
-	composite_semaphore = Semaphore(core->env.device);
-	compute_semaphore   = Semaphore(core->env.device);
-	lighting_semaphore  = Semaphore(core->env.device);
+	gbuffer_shadow_semaphore = Semaphore(core->env.device);
+	composite_semaphore      = Semaphore(core->env.device);
+	compute_semaphore        = Semaphore(core->env.device);
+	lighting_semaphore       = Semaphore(core->env.device);
+	copy_buffer_semaphore    = Semaphore(core->env.device);
 
 	// Create command buffers
-	command_buffers.resize(core->env.swapchain.image_count);
-	for (auto& command_buffer : command_buffers)
-	{
-		command_buffer.shadow_command_buffer    = Command_buffer(core->env.command_pool);
-		command_buffer.gbuffer_command_buffer   = Command_buffer(core->env.command_pool),
-		command_buffer.lighting_command_buffer  = Command_buffer(core->env.command_pool),
-		command_buffer.compute_command_buffer   = Command_buffer(core->env.command_pool),
-		command_buffer.composite_command_buffer = Command_buffer(core->env.command_pool);
-	}
+	for (auto _ : Range(core->env.swapchain.image_count)) command_buffers.emplace_back(core->env.command_pool);
 }
 
 std::shared_ptr<Application_logic_base> App_render_logic::work()
@@ -167,23 +159,36 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 	}
 }
 
-void App_render_logic::submit_commands(const Command_buffer_set& set)
+void App_render_logic::submit_commands(const Command_buffer_set& set) const
 {
-	const auto gbuffer_signal_semaphore = Semaphore::to_array({gbuffer_semaphore});
-	const auto gbuffer_submit_buffer    = Command_buffer::to_array({set.gbuffer_command_buffer});
-	const auto gbuffer_submit_info
-		= vk::SubmitInfo().setCommandBuffers(gbuffer_submit_buffer).setSignalSemaphores(gbuffer_signal_semaphore);
+	const bool has_skin = !core->source.model->skins.empty();
 
-	const auto  shadow_signal_semaphore = Semaphore::to_array({shadow_semaphore});
-	const auto& shadow_submit_buffer    = Command_buffer::to_array({set.shadow_command_buffer});
-	const auto  shadow_submit_info
-		= vk::SubmitInfo().setCommandBuffers(shadow_submit_buffer).setSignalSemaphores(shadow_signal_semaphore);
+	const auto copy_signal_semaphore = Semaphore::to_array({copy_buffer_semaphore});
+	const auto copy_submit_buffer    = Command_buffer::to_array({set.animation_update_command_buffer});
+	const auto copy_submit_info      = vk::SubmitInfo()
+									  .setCommandBuffers(copy_submit_buffer)
+									  .setSignalSemaphores(copy_signal_semaphore)
+									  .setWaitSemaphores({})
+									  .setWaitDstStageMask({});
+
+	const auto wait_stage_mask = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eTransfer});
+
+	const auto gbuffer_shadow_signal_semaphore = Semaphore::to_array({gbuffer_shadow_semaphore});
+	const auto gbuffer_shadow_submit_buffer    = Command_buffer::to_array({set.gbuffer_command_buffer, set.shadow_command_buffer});
+	auto       gbuffer_shadow_submit_info      = vk::SubmitInfo()
+										  .setCommandBuffers(gbuffer_shadow_submit_buffer)
+										  .setSignalSemaphores(gbuffer_shadow_signal_semaphore)
+										  .setWaitSemaphores({})
+										  .setWaitDstStageMask({});
+
+	if (has_skin)
+	{
+		gbuffer_shadow_submit_info.setWaitSemaphores(copy_signal_semaphore).setWaitDstStageMask(wait_stage_mask);
+	}
 
 	const auto lighting_signal_semaphore = Semaphore::to_array({lighting_semaphore});
-	const auto lighting_wait_semaphore   = Semaphore::to_array({gbuffer_semaphore, shadow_semaphore});
-	const auto lighting_wait_stages      = std::to_array<vk::PipelineStageFlags>(
-        {vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eColorAttachmentOutput}
-    );
+	const auto lighting_wait_semaphore   = Semaphore::to_array({gbuffer_shadow_semaphore});
+	const auto lighting_wait_stages      = std::to_array<vk::PipelineStageFlags>({vk::PipelineStageFlagBits::eColorAttachmentOutput});
 	const auto lighting_submit_buffers = Command_buffer::to_array({set.lighting_command_buffer});
 	const auto lighting_submit_info    = vk::SubmitInfo()
 										  .setCommandBuffers(lighting_submit_buffers)
@@ -213,8 +218,8 @@ void App_render_logic::submit_commands(const Command_buffer_set& set)
 										   .setWaitSemaphores(composite_wait_semaphore)
 										   .setSignalSemaphores(composite_signal_semaphore);
 
-	core->env.g_queue2.submit({shadow_submit_info});
-	core->env.g_queue.submit({gbuffer_submit_info, lighting_submit_info});
+	if (has_skin) core->env.t_queue.submit({copy_submit_info});
+	core->env.g_queue.submit({gbuffer_shadow_submit_info, lighting_submit_info});
 	core->env.c_queue.submit({compute_submit_info});
 	core->env.g_queue.submit({composite_submit_info}, core->render_targets.next_frame_fence);
 }
@@ -233,6 +238,7 @@ void App_render_logic::draw(uint32_t idx)
 	timer.start();
 
 	generate_drawcalls(idx);
+	upload_skin(idx);
 	draw_gbuffer(idx, command_buffer_set.gbuffer_command_buffer);
 	draw_shadow(idx, command_buffer_set.shadow_command_buffer);
 	draw_lighting(idx, command_buffer_set.lighting_command_buffer);
@@ -247,18 +253,19 @@ void App_render_logic::generate_drawcalls(uint32_t idx)
 {
 	if (selected_animation >= 0) update_animation();
 
+	const Node_traverser::Traverse_params traverse_param{core->source.model.get(), &animation_buffer, glm::mat4(1.0), 0};
+	traverser.traverse(traverse_param);
+
 	// Generate Gbuffer
 	{
 		const auto gbuffer_camera_param_prev = core->params.get_gbuffer_parameter(core->env);
 
 		const auto gen_params = Drawcall_generator::Gen_params{
 			core->source.model.get(),
-			&animation_buffer,
+			&traverser,
 			gbuffer_camera_param_prev.frustum,
 			gbuffer_camera_param_prev.eye_position,
-			gbuffer_camera_param_prev.eye_direction,
-			glm::mat4(1.0),
-			0
+			gbuffer_camera_param_prev.eye_direction
 		};
 
 		const auto gen_result = gbuffer_generator.generate(gen_params);
@@ -284,12 +291,10 @@ void App_render_logic::generate_drawcalls(uint32_t idx)
 	{
 		auto gen_params = Drawcall_generator::Gen_params{
 			core->source.model.get(),
-			&animation_buffer,
+			&traverser,
 			shadow_params[csm_idx].frustum,
 			shadow_params[csm_idx].eye_position,
-			shadow_params[csm_idx].eye_direction,
-			glm::mat4(1.0),
-			0
+			shadow_params[csm_idx].eye_direction
 		};
 
 		const auto gen_result = shadow_generator[csm_idx].generate(gen_params);
@@ -309,17 +314,43 @@ void App_render_logic::draw_gbuffer(uint32_t idx, const Command_buffer& command_
 {
 	const auto draw_extent = vk::Rect2D({0, 0}, core->env.swapchain.extent);
 
-	auto bind_material = [this, command_buffer](auto drawcall)
+	auto bind_material = [this, command_buffer](const Drawcall& drawcall)
 	{
-		command_buffer.bind_descriptor_sets(
-			vk::PipelineBindPoint::eGraphics,
-			core->pipeline_set.gbuffer_pipeline.pipeline_layout,
-			1,
-			{core->source.material_data[drawcall.primitive.material_idx].descriptor_set}
-		);
+		if (drawcall.primitive.material_idx)
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.gbuffer_pipeline.pipeline_layout,
+				1,
+				{core->source.material_data[drawcall.primitive.material_idx.value()].descriptor_set}
+			);
+		else
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.gbuffer_pipeline.pipeline_layout,
+				1,
+				{core->source.material_data.back().descriptor_set}
+			);
 	};
 
-	auto bind_vertex = [this, command_buffer](auto drawcall)
+	auto bind_material_skin = [this, command_buffer](const Drawcall& drawcall)
+	{
+		if (drawcall.primitive.material_idx)
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.gbuffer_pipeline.pipeline_layout_skin,
+				1,
+				{core->source.material_data[drawcall.primitive.material_idx.value()].descriptor_set}
+			);
+		else
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.gbuffer_pipeline.pipeline_layout_skin,
+				1,
+				{core->source.material_data.back().descriptor_set}
+			);
+	};
+
+	auto bind_vertex = [this, command_buffer](const Drawcall& drawcall)
 	{
 		const auto& model     = core->source.model;
 		const auto& primitive = drawcall.primitive;
@@ -336,11 +367,44 @@ void App_render_logic::draw_gbuffer(uint32_t idx, const Command_buffer& command_
 		);
 	};
 
+	auto bind_vertex_skin = [this, command_buffer](const Drawcall& drawcall)
+	{
+		const auto& model     = core->source.model;
+		const auto& primitive = drawcall.primitive;
+		command_buffer->bindVertexBuffers(
+			0,
+			{model->vec3_buffers[primitive.position_buffer],
+			 model->vec3_buffers[primitive.normal_buffer],
+			 model->vec2_buffers[primitive.uv_buffer],
+			 model->vec3_buffers[primitive.tangent_buffer],
+			 model->joint_buffers[primitive.skin->joint_buffer],
+			 model->weight_buffers[primitive.skin->weight_buffer]},
+			{primitive.position_offset * sizeof(glm::vec3),
+			 primitive.normal_offset * sizeof(glm::vec3),
+			 primitive.uv_offset * sizeof(glm::vec2),
+			 primitive.tangent_offset * sizeof(glm::vec3),
+			 primitive.skin->joint_offset * sizeof(glm::u16vec4),
+			 primitive.skin->weight_offset * sizeof(glm::vec4)}
+		);
+	};
+
+	auto bind_node_skin = [this, command_buffer](const Drawcall& drawcall)
+	{
+		const auto& model = *core->source.model;
+		const auto& node  = model.nodes[drawcall.node_idx];
+
+		command_buffer->bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			core->pipeline_set.gbuffer_pipeline.pipeline_layout_skin,
+			2,
+			{core->source.skin_descriptors[node.skin_idx.value()].gbuffer_set},
+			{}
+		);
+	};
+
 	const auto single_draw_params = Drawlist::Draw_params{
 		command_buffer,
-		core->pipeline_set.gbuffer_pipeline.single_sided_pipeline,
-		core->pipeline_set.gbuffer_pipeline.single_sided_pipeline_alpha,
-		core->pipeline_set.gbuffer_pipeline.single_sided_pipeline_blend,
+		core->pipeline_set.gbuffer_pipeline.single_side,
 		core->pipeline_set.gbuffer_pipeline.pipeline_layout,
 		bind_material,
 		bind_vertex,
@@ -350,14 +414,34 @@ void App_render_logic::draw_gbuffer(uint32_t idx, const Command_buffer& command_
 
 	const auto double_draw_params = Drawlist::Draw_params{
 		command_buffer,
-		core->pipeline_set.gbuffer_pipeline.double_sided_pipeline,
-		core->pipeline_set.gbuffer_pipeline.double_sided_pipeline_alpha,
-		core->pipeline_set.gbuffer_pipeline.double_sided_pipeline_blend,
+		core->pipeline_set.gbuffer_pipeline.double_side,
 		core->pipeline_set.gbuffer_pipeline.pipeline_layout,
 		bind_material,
 		bind_vertex,
 		bind_vertex,
 		bind_vertex
+	};
+
+	const auto single_draw_skin_params = Drawlist::Draw_params{
+		command_buffer,
+		core->pipeline_set.gbuffer_pipeline.single_side_skin,
+		core->pipeline_set.gbuffer_pipeline.pipeline_layout_skin,
+		bind_material_skin,
+		bind_vertex_skin,
+		bind_vertex_skin,
+		bind_vertex_skin,
+		bind_node_skin
+	};
+
+	const auto double_draw_skin_params = Drawlist::Draw_params{
+		command_buffer,
+		core->pipeline_set.gbuffer_pipeline.double_side_skin,
+		core->pipeline_set.gbuffer_pipeline.pipeline_layout_skin,
+		bind_material_skin,
+		bind_vertex_skin,
+		bind_vertex_skin,
+		bind_vertex_skin,
+		bind_node_skin
 	};
 
 	command_buffer.begin();
@@ -383,6 +467,16 @@ void App_render_logic::draw_gbuffer(uint32_t idx, const Command_buffer& command_
 
 		gbuffer_generator.get_single_sided_drawlist().draw(single_draw_params);
 		gbuffer_generator.get_double_sided_drawlist().draw(double_draw_params);
+
+		command_buffer.bind_descriptor_sets(
+			vk::PipelineBindPoint::eGraphics,
+			core->pipeline_set.gbuffer_pipeline.pipeline_layout_skin,
+			0,
+			{core->render_targets[idx].gbuffer_rt.camera_uniform_descriptor_set}
+		);
+
+		gbuffer_generator.get_single_sided_skin_drawlist().draw(single_draw_skin_params);
+		gbuffer_generator.get_double_sided_skin_drawlist().draw(double_draw_skin_params);
 	}
 	command_buffer.end_render_pass();
 	core->env.debug_marker.end_region(command_buffer);
@@ -446,12 +540,38 @@ void App_render_logic::draw_shadow(uint32_t idx, const Command_buffer& command_b
 {
 	auto bind_material = [=, this](Drawcall drawcall)
 	{
-		command_buffer.bind_descriptor_sets(
-			vk::PipelineBindPoint::eGraphics,
-			core->pipeline_set.shadow_pipeline.pipeline_layout,
-			1,
-			{core->source.material_data[drawcall.primitive.material_idx].albedo_only_descriptor_set}
-		);
+		if (drawcall.primitive.material_idx)
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.shadow_pipeline.pipeline_layout,
+				1,
+				{core->source.material_data[drawcall.primitive.material_idx.value()].albedo_only_descriptor_set}
+			);
+		else
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.shadow_pipeline.pipeline_layout,
+				1,
+				{core->source.material_data.back().albedo_only_descriptor_set}
+			);
+	};
+
+	auto bind_material_skin = [this, command_buffer](const Drawcall& drawcall)
+	{
+		if (drawcall.primitive.material_idx)
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.shadow_pipeline.pipeline_layout_skin,
+				1,
+				{core->source.material_data[drawcall.primitive.material_idx.value()].albedo_only_descriptor_set}
+			);
+		else
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.shadow_pipeline.pipeline_layout_skin,
+				1,
+				{core->source.material_data.back().albedo_only_descriptor_set}
+			);
 	};
 
 	auto bind_vertex = [=, this](Drawcall drawcall)
@@ -475,11 +595,57 @@ void App_render_logic::draw_shadow(uint32_t idx, const Command_buffer& command_b
 			->bindVertexBuffers(0, {model.vec3_buffers[primitive.position_buffer]}, {primitive.position_offset * sizeof(glm::vec3)});
 	};
 
+	auto bind_vertex_skin = [=, this](Drawcall drawcall)
+	{
+		const auto& model     = *core->source.model;
+		const auto& primitive = drawcall.primitive;
+
+		command_buffer->bindVertexBuffers(
+			0,
+			{model.vec3_buffers[primitive.position_buffer],
+			 model.vec2_buffers[primitive.uv_buffer],
+			 model.joint_buffers[primitive.skin->joint_buffer],
+			 model.weight_buffers[primitive.skin->weight_buffer]},
+			{primitive.position_offset * sizeof(glm::vec3),
+			 primitive.uv_offset * sizeof(glm::vec2),
+			 primitive.skin->joint_offset * sizeof(glm::u16vec4),
+			 primitive.skin->weight_offset * sizeof(glm::vec4)}
+		);
+	};
+
+	auto bind_vertex_opaque_skin = [=, this](Drawcall drawcall)
+	{
+		const auto& model     = *core->source.model;
+		const auto& primitive = drawcall.primitive;
+
+		command_buffer->bindVertexBuffers(
+			0,
+			{model.vec3_buffers[primitive.position_buffer],
+			 model.joint_buffers[primitive.skin->joint_buffer],
+			 model.weight_buffers[primitive.skin->weight_buffer]},
+			{primitive.position_offset * sizeof(glm::vec3),
+			 primitive.skin->joint_offset * sizeof(glm::u16vec4),
+			 primitive.skin->weight_offset * sizeof(glm::vec4)}
+		);
+	};
+
+	auto bind_node_skin = [this, command_buffer](const Drawcall& drawcall)
+	{
+		const auto& model = *core->source.model;
+		const auto& node  = model.nodes[drawcall.node_idx];
+
+		command_buffer->bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			core->pipeline_set.shadow_pipeline.pipeline_layout_skin,
+			2,
+			{core->source.skin_descriptors[node.skin_idx.value()].shadow_set},
+			{}
+		);
+	};
+
 	const auto single_draw_params = Drawlist::Draw_params{
 		command_buffer,
-		core->pipeline_set.shadow_pipeline.single_sided_pipeline,
-		core->pipeline_set.shadow_pipeline.single_sided_pipeline_alpha,
-		core->pipeline_set.shadow_pipeline.single_sided_pipeline_blend,
+		core->pipeline_set.shadow_pipeline.single_side,
 		core->pipeline_set.shadow_pipeline.pipeline_layout,
 		bind_material,
 		bind_vertex_opaque,
@@ -489,14 +655,34 @@ void App_render_logic::draw_shadow(uint32_t idx, const Command_buffer& command_b
 
 	const auto double_draw_params = Drawlist::Draw_params{
 		command_buffer,
-		core->pipeline_set.shadow_pipeline.double_sided_pipeline,
-		core->pipeline_set.shadow_pipeline.double_sided_pipeline_alpha,
-		core->pipeline_set.shadow_pipeline.double_sided_pipeline_blend,
+		core->pipeline_set.shadow_pipeline.double_side,
 		core->pipeline_set.shadow_pipeline.pipeline_layout,
 		bind_material,
 		bind_vertex_opaque,
 		bind_vertex,
 		bind_vertex
+	};
+
+	const auto single_draw_params_skin = Drawlist::Draw_params{
+		command_buffer,
+		core->pipeline_set.shadow_pipeline.single_side_skin,
+		core->pipeline_set.shadow_pipeline.pipeline_layout_skin,
+		bind_material_skin,
+		bind_vertex_opaque_skin,
+		bind_vertex_skin,
+		bind_vertex_skin,
+		bind_node_skin
+	};
+
+	const auto double_draw_params_skin = Drawlist::Draw_params{
+		command_buffer,
+		core->pipeline_set.shadow_pipeline.double_side_skin,
+		core->pipeline_set.shadow_pipeline.pipeline_layout_skin,
+		bind_material_skin,
+		bind_vertex_opaque_skin,
+		bind_vertex_skin,
+		bind_vertex_skin,
+		bind_node_skin
 	};
 
 	command_buffer.begin();
@@ -531,6 +717,16 @@ void App_render_logic::draw_shadow(uint32_t idx, const Command_buffer& command_b
 
 			shadow_generator[csm_idx].get_single_sided_drawlist().draw(single_draw_params);
 			shadow_generator[csm_idx].get_double_sided_drawlist().draw(double_draw_params);
+
+			command_buffer.bind_descriptor_sets(
+				vk::PipelineBindPoint::eGraphics,
+				core->pipeline_set.shadow_pipeline.pipeline_layout_skin,
+				0,
+				{core->render_targets[idx].shadow_rt.shadow_matrix_descriptor_set[csm_idx]}
+			);
+
+			shadow_generator[csm_idx].get_single_sided_skin_drawlist().draw(single_draw_params_skin);
+			shadow_generator[csm_idx].get_double_sided_skin_drawlist().draw(double_draw_params_skin);
 		}
 		command_buffer.end_render_pass();
 		core->env.debug_marker.end_region(command_buffer);
@@ -1449,6 +1645,26 @@ void App_render_logic::update_animation()
 			return std::ref(find->second);
 		}
 	);
+}
+
+void App_render_logic::upload_skin(uint32_t idx)
+{
+	const auto& model = *core->source.model;
+
+	if (model.skins.empty()) return;
+
+	for (auto i : Range(model.skins.size()))
+	{
+		auto&       dst  = core->source.skin_matrix_cpu[i];
+		const auto& skin = model.skins[i];
+
+		for (auto j : Range(skin.joints.size()))
+		{
+			dst[j] = traverser[skin.joints[j]].transform * skin.inverse_bind_matrices[j];
+		}
+	}
+
+	core->source.stream_skin_data(core->env, command_buffers[idx].animation_update_command_buffer);
 }
 
 void App_render_logic::animation_tab()

@@ -38,13 +38,12 @@ Trying my best to make my codebase clean and neat! :smile:
     - 10-bit Rendering Support
     - JSON Preset Loading
     - FXAA Antialiasing
+    - Skins & Animation
 
     **Planned Features**:
 
     - HDR Support (PQ Curve)
-    - Skins & Animation
     - KTX Loading & Texture Compression
-    - Built-in Render Time Measuring
 
 - `./decrepated`: Decrepated projects, created using C API at the very early stage of learning Vulkan.
 

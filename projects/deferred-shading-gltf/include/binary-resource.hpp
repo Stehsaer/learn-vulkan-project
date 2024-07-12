@@ -52,6 +52,9 @@ namespace binary_resource
 	// SOURCE: shaders/gbuffer.vert
 	DEFINE_RESOURCE(gbuffer_vert)
 
+	// SOURCE: shaders/gbuffer-skin.vert
+	DEFINE_RESOURCE(gbuffer_skin_vert)
+
 	// SOURCE: shaders/lighting.frag
 	DEFINE_RESOURCE(lighting_frag)
 
@@ -69,6 +72,12 @@ namespace binary_resource
 
 	// SOURCE: shaders/shadow-opaque.vert
 	DEFINE_RESOURCE(shadow_opaque_vert)
+
+	// SOURCE: shaders/shadow-skin.vert
+	DEFINE_RESOURCE(shadow_skin_vert)
+
+	// SOURCE: shaders/shadow-skin-opaque.vert
+	DEFINE_RESOURCE(shadow_skin_opaque_vert)
 
 	/* Assets */
 

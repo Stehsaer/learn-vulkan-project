@@ -10,6 +10,8 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::CommandBuffer, Command_pool>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Command_buffer(const Command_pool& pool, vk::CommandBufferLevel level = vk::CommandBufferLevel::ePrimary);
@@ -20,7 +22,6 @@ namespace VKLIB_HPP_NAMESPACE
 			vk::CommandBufferLevel level = vk::CommandBufferLevel::ePrimary
 		);
 
-		void clean() override;
 		~Command_buffer() override { clean(); }
 
 		/*==== Helpers & Functions ====*/

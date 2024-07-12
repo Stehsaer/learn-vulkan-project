@@ -9,6 +9,8 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::SwapchainKHR, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Swapchain(
@@ -26,7 +28,6 @@ namespace VKLIB_HPP_NAMESPACE
 			vk::CompositeAlphaFlagBitsKHR   composite_alpha = vk::CompositeAlphaFlagBitsKHR::eOpaque
 		);
 
-		void clean() override;
 		~Swapchain() override { clean(); }
 
 		/* ====== Helpers ====== */

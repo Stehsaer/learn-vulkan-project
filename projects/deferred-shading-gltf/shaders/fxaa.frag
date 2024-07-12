@@ -159,9 +159,6 @@ vec3 fxaa_3_quality()
 
 	if(lumaContrast < FXAA_ABSOLUTE_LUMA_THRESHOLD) return colM;
 	
-	if(abs(lumaN - lumaS) < 0.05 * avg && abs(lumaW - lumaS) < 0.05 * avg)
-		return (colN + colE + colS + colW + colM) * 0.2;
-
 	const float lumaNW = luma(fetch_color(ivec2(-1, 1))),
 		lumaNE = luma(fetch_color(ivec2(1, 1))),
 		lumaSW = luma(fetch_color(ivec2(-1, -1))),

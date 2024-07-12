@@ -5,10 +5,9 @@ layout(location = 1) out vec4 out_color;
 layout(location = 2) out vec4 out_pbr;
 layout(location = 3) out vec4 out_emissive;
 
-layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_normal;
-layout(location = 2) in vec2 in_uv;
-layout(location = 3) in vec3 in_tangent;
+layout(location = 0) in vec3 in_normal;
+layout(location = 1) in vec2 in_uv;
+layout(location = 2) in vec3 in_tangent;
 
 layout(constant_id = 0) const bool alpha_cutoff_enabled = false;
 layout(constant_id = 1) const bool alpha_blend_enabled = false;

@@ -13,11 +13,12 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<VmaAllocator, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Vma_allocator(const Physical_device& physical_device, const Device& device, const Instance& instance);
 
-		void clean() override;
 		~Vma_allocator() override { clean(); }
 	};
 
@@ -33,7 +34,7 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<Vma_allocation_wrapper<T>, Vma_allocator>::Child_resource;
 
-	  protected:
+	  public:
 
 		void* map_memory() const
 		{
@@ -45,8 +46,6 @@ namespace VKLIB_HPP_NAMESPACE
 		}
 
 		void unmap_memory() const { vmaUnmapMemory(this->parent(), this->data->child.alloc_handle); }
-
-	  public:
 
 		template <std::ranges::contiguous_range Data_T>
 		void operator<<(const Data_T& data_span) const

@@ -65,6 +65,7 @@ void Shadow_pipeline::create(const Environment& env)
 			.setStageFlags(vk::ShaderStageFlagBits::eVertex);
 
 		descriptor_set_layout_shadow_matrix = Descriptor_set_layout(env.device, layout_bindings);
+		env.debug_marker.set_object_name(descriptor_set_layout_shadow_matrix, "Shadow Descriptor Set Layout (Shadow Matrix)");
 	}
 
 	//* Model Texture DS Layout
@@ -91,6 +92,16 @@ void Shadow_pipeline::create(const Environment& env)
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
 		descriptor_set_layout_texture = Descriptor_set_layout(env.device, layout_bindings);
+		env.debug_marker.set_object_name(descriptor_set_layout_texture, "Shadow Descriptor Set Layout (Texture)");
+	}
+
+	//* Joint Weight DS Layout
+	{
+		const auto layout_binding
+			= vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eVertex);
+
+		descriptor_set_layout_skin = Descriptor_set_layout(env.device, {layout_binding});
+		env.debug_marker.set_object_name(descriptor_set_layout_skin, "Shadow Descriptor Set Layout (Skin)");
 	}
 
 	//* Pipeline layout
@@ -103,6 +114,13 @@ void Shadow_pipeline::create(const Environment& env)
 		pipeline_layout
 			= Pipeline_layout(env.device, {descriptor_set_layout_shadow_matrix, descriptor_set_layout_texture}, push_constant_range);
 		env.debug_marker.set_object_name(pipeline_layout, "Shadow Pipeline Layout");
+
+		pipeline_layout_skin = Pipeline_layout(
+			env.device,
+			{descriptor_set_layout_shadow_matrix, descriptor_set_layout_texture, descriptor_set_layout_skin},
+			push_constant_range
+		);
+		env.debug_marker.set_object_name(pipeline_layout_skin, "Shadow Pipeline Layout (Skin)");
 	}
 
 	//* Graphics Pipeline
@@ -111,12 +129,18 @@ void Shadow_pipeline::create(const Environment& env)
 
 		// Shaders
 		const Shader_module vert_shader = GET_SHADER_MODULE(shadow_vert), frag_shader = GET_SHADER_MODULE(shadow_frag),
-							opaque_vert_shader = GET_SHADER_MODULE(shadow_opaque_vert);
+							opaque_vert_shader      = GET_SHADER_MODULE(shadow_opaque_vert),
+							skin_vert_shader        = GET_SHADER_MODULE(shadow_skin_vert),
+							skin_opaque_vert_shader = GET_SHADER_MODULE(shadow_skin_opaque_vert);
 
 		auto shader_module_infos = std::to_array(
 			{vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
 		);
+		auto shader_skin_module_infos = std::to_array(
+			{skin_vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
+		);
 		const auto opaque_module_infos = std::to_array({opaque_vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex)});
+		const auto opaque_skin_module_infos = std::to_array({skin_opaque_vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex)});
 		create_info.setStages(shader_module_infos);
 
 		// Shader specialization
@@ -134,20 +158,49 @@ void Shadow_pipeline::create(const Environment& env)
 			= vk::SpecializationInfo().setDataSize(sizeof(spec_map)).setPData(&spec_map).setMapEntries(constant_entries);
 
 		shader_module_infos[1].setPSpecializationInfo(&specialization_info);
+		shader_skin_module_infos[1].setPSpecializationInfo(&specialization_info);
+
+		/* Vertex Input Attribute */
 
 		std::array<vk::VertexInputAttributeDescription, 2> attributes;
-		attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
-		attributes[1].setBinding(1).setFormat(vk::Format::eR32G32Sfloat).setLocation(1).setOffset(0);
+		attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);  // in_position
+		attributes[1].setBinding(1).setFormat(vk::Format::eR32G32Sfloat).setLocation(1).setOffset(0);     // in_texcoord
 
 		std::array<vk::VertexInputAttributeDescription, 1> opaque_attributes;
-		opaque_attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
+		opaque_attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);  // in_position
+
+		std::array<vk::VertexInputAttributeDescription, 4> skin_attributes;
+		skin_attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);     // in_position
+		skin_attributes[1].setBinding(1).setFormat(vk::Format::eR32G32Sfloat).setLocation(1).setOffset(0);        // in_texcoord
+		skin_attributes[2].setBinding(2).setFormat(vk::Format::eR16G16B16A16Uint).setLocation(2).setOffset(0);    // in_joints
+		skin_attributes[3].setBinding(3).setFormat(vk::Format::eR32G32B32A32Sfloat).setLocation(3).setOffset(0);  // in_weights
+
+		std::array<vk::VertexInputAttributeDescription, 3> skin_opaque_attributes;
+		skin_opaque_attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);     // in_position
+		skin_opaque_attributes[1].setBinding(1).setFormat(vk::Format::eR16G16B16A16Uint).setLocation(1).setOffset(0);    // in_joints
+		skin_opaque_attributes[2].setBinding(2).setFormat(vk::Format::eR32G32B32A32Sfloat).setLocation(2).setOffset(0);  // in_weights
+
+		/* Vertex Binding */
 
 		std::array<vk::VertexInputBindingDescription, 2> bindings;
-		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
-		bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec2));
+		bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));  // in_position
+		bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec2));  // in_texcoord
 
 		std::array<vk::VertexInputBindingDescription, 1> opaque_bindings;
-		opaque_bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+		opaque_bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));  // in_position
+
+		std::array<vk::VertexInputBindingDescription, 4> skin_bindings;
+		skin_bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));     // in_position
+		skin_bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec2));     // in_texcoord
+		skin_bindings[2].setBinding(2).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::u16vec4));  // in_joints
+		skin_bindings[3].setBinding(3).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec4));     // in_weights
+
+		std::array<vk::VertexInputBindingDescription, 3> skin_opaque_bindings;
+		skin_opaque_bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));  // in_position
+		skin_opaque_bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::u16vec4));  // in_joints
+		skin_opaque_bindings[2].setBinding(2).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec4));  // in_weights
+
+		/* Vertex Input State */
 
 		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
 									  .setVertexAttributeDescriptions(attributes)
@@ -155,7 +208,16 @@ void Shadow_pipeline::create(const Environment& env)
 		auto opaque_vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
 											 .setVertexAttributeDescriptions(opaque_attributes)
 											 .setVertexBindingDescriptions(opaque_bindings);
+		auto skin_vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
+										   .setVertexAttributeDescriptions(skin_attributes)
+										   .setVertexBindingDescriptions(skin_bindings);
+		auto skin_opaque_vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
+												  .setVertexAttributeDescriptions(skin_opaque_attributes)
+												  .setVertexBindingDescriptions(skin_opaque_bindings);
+
 		create_info.setPVertexInputState(&vertex_input_state);
+
+		/* Input Assembly */
 
 		auto input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo().setTopology(vk::PrimitiveTopology::eTriangleList);
 		create_info.setPInputAssemblyState(&input_assembly_info);
@@ -196,31 +258,72 @@ void Shadow_pipeline::create(const Environment& env)
 		auto opaque_create_info = create_info;
 		opaque_create_info.setStages(opaque_module_infos).setPVertexInputState(&opaque_vertex_input_state);
 
+		auto skin_create_info = create_info;
+		skin_create_info.setStages(shader_skin_module_infos)
+			.setPVertexInputState(&skin_vertex_input_state)
+			.setLayout(pipeline_layout_skin);
+
+		auto skin_opaque_create_info = create_info;
+		skin_opaque_create_info.setStages(opaque_skin_module_infos)
+			.setPVertexInputState(&skin_opaque_vertex_input_state)
+			.setLayout(pipeline_layout_skin);
+
 		//* Single Sided
-		single_sided_pipeline = Graphics_pipeline(env.device, opaque_create_info);
-		env.debug_marker.set_object_name(single_sided_pipeline, "Shadow Pipeline (Single Sided Opaque)");
+
+		// Single sided without skin
+
+		single_side.opaque = Graphics_pipeline(env.device, opaque_create_info);
+		env.debug_marker.set_object_name(single_side.opaque, "Shadow Pipeline (Single Sided Opaque)");
 
 		spec_map                    = {true, false};
-		single_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(single_sided_pipeline_alpha, "Shadow Pipeline (Single Sided Alpha)");
+		single_side.mask            = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_side.mask, "Shadow Pipeline (Single Sided Alpha)");
 
 		spec_map                    = {false, true};
-		single_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(single_sided_pipeline_blend, "Shadow Pipeline (Single Sided Blend)");
+		single_side.blend           = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_side.blend, "Shadow Pipeline (Single Sided Blend)");
+
+		// Single sided with skin
+
+		single_side_skin.opaque = Graphics_pipeline(env.device, skin_opaque_create_info);
+		env.debug_marker.set_object_name(single_side_skin.opaque, "Shadow Pipeline (Single Sided Opaque Skin)");
+
+		spec_map              = {true, false};
+		single_side_skin.mask = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(single_side.mask, "Shadow Pipeline (Single Sided Alpha Skin)");
+
+		spec_map               = {false, true};
+		single_side_skin.blend = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(single_side_skin.blend, "Shadow Pipeline (Single Sided Blend Skin)");
 
 		//* Double Sided
 		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone).setDepthBiasConstantFactor(1.25).setDepthBiasSlopeFactor(1.75);
 
-		double_sided_pipeline = Graphics_pipeline(env.device, opaque_create_info);
-		env.debug_marker.set_object_name(double_sided_pipeline, "Shadow Pipeline (Double Sided Opaque)");
+		// Double sided without skin
+
+		double_side.opaque = Graphics_pipeline(env.device, opaque_create_info);
+		env.debug_marker.set_object_name(double_side.opaque, "Shadow Pipeline (Double Sided Opaque)");
 
 		spec_map                    = {true, false};
-		double_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(double_sided_pipeline_alpha, "Shadow Pipeline (Double Sided Alpha)");
+		double_side.mask            = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_side.mask, "Shadow Pipeline (Double Sided Alpha)");
 
 		spec_map                    = {false, true};
-		double_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(double_sided_pipeline_blend, "Shadow Pipeline (Double Sided Blend)");
+		double_side.blend           = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_side.blend, "Shadow Pipeline (Double Sided Blend)");
+
+		// Double sided with skin
+
+		double_side_skin.opaque = Graphics_pipeline(env.device, skin_opaque_create_info);
+		env.debug_marker.set_object_name(double_side_skin.opaque, "Shadow Pipeline (Double Sided Opaque Skin)");
+
+		spec_map              = {true, false};
+		double_side_skin.mask = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(double_side_skin.mask, "Shadow Pipeline (Double Sided Alpha Skin)");
+
+		spec_map               = {false, true};
+		double_side_skin.blend = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(double_side_skin.blend, "Shadow Pipeline (Double Sided Blend Skin)");
 	}
 }
 
@@ -361,6 +464,14 @@ void Gbuffer_pipeline::create(const Environment& env)
 		descriptor_set_layout_texture = Descriptor_set_layout(env.device, layout_bindings);
 	}
 
+	{  // Skin
+		const auto layout_binding
+			= vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eVertex);
+
+		descriptor_set_layout_skin = Descriptor_set_layout(env.device, {layout_binding});
+		env.debug_marker.set_object_name(descriptor_set_layout_skin, "Gbuffer Descriptor Set Layout (Skin)");
+	}
+
 	//* Pipeline Layout
 	{
 		std::array<vk::PushConstantRange, 1> push_constant_range;
@@ -372,6 +483,13 @@ void Gbuffer_pipeline::create(const Environment& env)
 
 		pipeline_layout = Pipeline_layout(env.device, descriptor_set_layouts, push_constant_range);
 		env.debug_marker.set_object_name(pipeline_layout, "Gbuffer Pipeline Layout");
+
+		pipeline_layout_skin = Pipeline_layout(
+			env.device,
+			{descriptor_set_layout_camera, descriptor_set_layout_texture, descriptor_set_layout_skin},
+			push_constant_range
+		);
+		env.debug_marker.set_object_name(pipeline_layout_skin, "Gbuffer Pipeline Layout (Skin)");
 	}
 
 	//* Graphics Pipeline
@@ -379,10 +497,15 @@ void Gbuffer_pipeline::create(const Environment& env)
 		vk::GraphicsPipelineCreateInfo create_info;
 
 		// Shaders
-		const Shader_module vert_shader = GET_SHADER_MODULE(gbuffer_vert), frag_shader = GET_SHADER_MODULE(gbuffer_frag);
+		const Shader_module vert_shader = GET_SHADER_MODULE(gbuffer_vert), frag_shader = GET_SHADER_MODULE(gbuffer_frag),
+							skin_vert_shader = GET_SHADER_MODULE(gbuffer_skin_vert);
 
-		auto shader_module_infos
-			= std::to_array({vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)});
+		auto shader_module_infos = std::to_array(
+			{vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
+		);
+		auto skin_shader_module_infos = std::to_array(
+			{skin_vert_shader.stage_info(vk::ShaderStageFlagBits::eVertex), frag_shader.stage_info(vk::ShaderStageFlagBits::eFragment)}
+		);
 		create_info.setStages(shader_module_infos);
 
 		// Shader specialization
@@ -400,6 +523,7 @@ void Gbuffer_pipeline::create(const Environment& env)
 			= vk::SpecializationInfo().setDataSize(sizeof(spec_map)).setPData(&spec_map).setMapEntries(constant_entries);
 
 		shader_module_infos[1].setPSpecializationInfo(&specialization_info);
+		skin_shader_module_infos[1].setPSpecializationInfo(&specialization_info);
 
 		// Vertex Input State
 
@@ -411,6 +535,16 @@ void Gbuffer_pipeline::create(const Environment& env)
 			attributes[3].setBinding(3).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(3).setOffset(0);
 		}
 
+		std::array<vk::VertexInputAttributeDescription, 6> skin_attributes;
+		{
+			skin_attributes[0].setBinding(0).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(0).setOffset(0);
+			skin_attributes[1].setBinding(1).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(1).setOffset(0);
+			skin_attributes[2].setBinding(2).setFormat(vk::Format::eR32G32Sfloat).setLocation(2).setOffset(0);
+			skin_attributes[3].setBinding(3).setFormat(vk::Format::eR32G32B32Sfloat).setLocation(3).setOffset(0);
+			skin_attributes[4].setBinding(4).setFormat(vk::Format::eR16G16B16A16Uint).setLocation(4).setOffset(0);
+			skin_attributes[5].setBinding(5).setFormat(vk::Format::eR32G32B32A32Sfloat).setLocation(5).setOffset(0);
+		}
+
 		std::array<vk::VertexInputBindingDescription, 4> bindings;
 		{
 			bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
@@ -419,7 +553,22 @@ void Gbuffer_pipeline::create(const Environment& env)
 			bindings[3].setBinding(3).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
 		}
 
-		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo().setVertexAttributeDescriptions(attributes).setVertexBindingDescriptions(bindings);
+		std::array<vk::VertexInputBindingDescription, 6> skin_bindings;
+		{
+			skin_bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+			skin_bindings[1].setBinding(1).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+			skin_bindings[2].setBinding(2).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec2));
+			skin_bindings[3].setBinding(3).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec3));
+			skin_bindings[4].setBinding(4).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::u16vec4));
+			skin_bindings[5].setBinding(5).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(glm::vec4));
+		}
+
+		auto vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
+									  .setVertexAttributeDescriptions(attributes)
+									  .setVertexBindingDescriptions(bindings);
+		auto skin_vertex_input_state = vk::PipelineVertexInputStateCreateInfo()
+										   .setVertexAttributeDescriptions(skin_attributes)
+										   .setVertexBindingDescriptions(skin_bindings);
 		create_info.setPVertexInputState(&vertex_input_state);
 
 		// Input Assembly State
@@ -476,33 +625,62 @@ void Gbuffer_pipeline::create(const Environment& env)
 		// Layout & Renderpass
 		create_info.setRenderPass(render_pass).setLayout(pipeline_layout).setSubpass(0);
 
+		auto skin_create_info = create_info;
+		skin_create_info.setStages(skin_shader_module_infos)
+			.setPVertexInputState(&skin_vertex_input_state)
+			.setLayout(pipeline_layout_skin);
+
 		//* Single Sided
-		spec_map              = {false, false};
-		single_sided_pipeline = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(single_sided_pipeline, "Gbuffer Pipeline (Single Sided Opaque)");
+		spec_map           = {false, false};
+		single_side.opaque = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_side.opaque, "Gbuffer Pipeline (Single Sided Opaque)");
 
-		spec_map                    = {true, false};
-		single_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(single_sided_pipeline_alpha, "Gbuffer Pipeline (Single Sided Alpha)");
+		spec_map         = {true, false};
+		single_side.mask = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_side.mask, "Gbuffer Pipeline (Single Sided Alpha)");
 
-		spec_map                    = {false, true};
-		single_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(single_sided_pipeline_blend, "Gbuffer Pipeline (Single Sided Blend)");
+		spec_map          = {false, true};
+		single_side.blend = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(single_side.blend, "Gbuffer Pipeline (Single Sided Blend)");
+
+		spec_map                = {false, false};
+		single_side_skin.opaque = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(single_side_skin.opaque, "Gbuffer Pipeline (Single Sided Opaque Skin)");
+
+		spec_map              = {true, false};
+		single_side_skin.mask = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(single_side_skin.mask, "Gbuffer Pipeline (Single Sided Alpha Skin)");
+
+		spec_map               = {false, true};
+		single_side_skin.blend = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(single_side_skin.blend, "Gbuffer Pipeline (Single Sided Blend Skin)");
 
 		//* Double Sided
 		rasterization_state.setCullMode(vk::CullModeFlagBits::eNone);
 
-		spec_map              = {false, false};
-		double_sided_pipeline = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(double_sided_pipeline, "Gbuffer Pipeline (Double Sided Opaque)");
+		spec_map           = {false, false};
+		double_side.opaque = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_side.opaque, "Gbuffer Pipeline (Double Sided Opaque)");
 
-		spec_map                    = {true, false};
-		double_sided_pipeline_alpha = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(double_sided_pipeline_alpha, "Gbuffer Pipeline (Double Sided ALpha)");
+		spec_map         = {true, false};
+		double_side.mask = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_side.mask, "Gbuffer Pipeline (Double Sided ALpha)");
 
-		spec_map                    = {false, true};
-		double_sided_pipeline_blend = Graphics_pipeline(env.device, create_info);
-		env.debug_marker.set_object_name(double_sided_pipeline_blend, "Gbuffer Pipeline (Double Sided Blend)");
+		spec_map          = {false, true};
+		double_side.blend = Graphics_pipeline(env.device, create_info);
+		env.debug_marker.set_object_name(double_side.blend, "Gbuffer Pipeline (Double Sided Blend)");
+
+		spec_map                = {false, false};
+		double_side_skin.opaque = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(double_side_skin.opaque, "Gbuffer Pipeline (Double Sided Opaque Skin)");
+
+		spec_map              = {true, false};
+		double_side_skin.mask = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(double_side_skin.mask, "Gbuffer Pipeline (Double Sided ALpha Skin)");
+
+		spec_map               = {false, true};
+		double_side_skin.blend = Graphics_pipeline(env.device, skin_create_info);
+		env.debug_marker.set_object_name(double_side_skin.blend, "Gbuffer Pipeline (Double Sided Blend Skin)");
 	}
 }
 

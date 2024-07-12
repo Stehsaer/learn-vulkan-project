@@ -18,6 +18,8 @@ struct Render_source
 
 	std::string model_path, hdri_path;
 
+	/* Material */
+
 	struct Material_data
 	{
 		Descriptor_set descriptor_set, albedo_only_descriptor_set;
@@ -27,7 +29,26 @@ struct Render_source
 	std::vector<Material_data> material_data;
 	Buffer                     material_uniform_buffer;
 
+	/* Skin */
+
+	std::vector<std::vector<glm::mat4>> skin_matrix_cpu;
+	Buffer                              skin_matrix_data_staging;  // Staging buffer pre-allocated for immediate use
+	Buffer                              skin_matrix_data_gpu;      // Storage buffer at GPU side
+
+	struct Skin_descriptor
+	{
+		Descriptor_set gbuffer_set, shadow_set;
+	};
+
+	Descriptor_pool              skin_descriptor_pool;
+	std::vector<Skin_descriptor> skin_descriptors;  // Skin descriptors for each skin
+	uint32_t                     skin_matrix_count;
+
 	void generate_material_data(const Environment& env, const Pipeline_set& pipeline);
+
+	void generate_skin_data(const Environment& env, const Pipeline_set& pipeline);
+
+	void stream_skin_data(const Environment& env, const Command_buffer& command_buffer);
 };
 
 struct Camera_parameter

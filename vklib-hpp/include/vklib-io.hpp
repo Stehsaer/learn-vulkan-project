@@ -10,16 +10,15 @@ namespace VKLIB_HPP_NAMESPACE::io
 	{
 	  public:
 
-		std::string filename, reason;
+		std::string filename;
 
 		File_exception(
+			const std::string&          msg,
 			const std::string&          filename,
-			const std::string&          reason,
 			const std::source_location& loc = std::source_location::current()
 		) :
-			Exception(std::format("{}: {}", reason, filename), loc),
-			filename(filename),
-			reason(reason)
+			Exception(std::format("(File Exception) {}", msg), std::format("File: {}", filename), loc),
+			filename(filename)
 		{
 		}
 	};
@@ -35,8 +34,17 @@ namespace VKLIB_HPP_NAMESPACE::io
 		{
 		  public:
 
-			Image_exception(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
-				Exception(msg, loc)
+			std::string filename, reason;
+
+			Image_exception(
+				const std::string&          msg,
+				const std::string&          filename,
+				const std::string&          reason,
+				const std::source_location& loc = std::source_location::current()
+			) :
+				Exception(std::format("(Image Exception) {}", msg), std::format("{} (File: {})", reason, filename), loc),
+				filename(filename),
+				reason(reason)
 			{
 			}
 		};
@@ -134,7 +142,7 @@ namespace VKLIB_HPP_NAMESPACE::io
 		  public:
 
 			Mesh_exception(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
-				Exception(msg, loc)
+				Exception(msg, "", loc)
 			{
 			}
 		};

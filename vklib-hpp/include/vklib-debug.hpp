@@ -15,6 +15,8 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::DebugUtilsMessengerEXT, Instance>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		/* ===== Type Definitions =====  */
@@ -51,7 +53,6 @@ namespace VKLIB_HPP_NAMESPACE
 			callback_t*        callback = validation_callback
 		);
 
-		void clean() override;
 		~Debug_utility() override { clean(); }
 
 		// Callback, generates a Validation_error when called (broken)

@@ -7,6 +7,11 @@ struct General_model_matrix
 	glm::mat4 matrix;
 };
 
+struct Model_pipeline_set
+{
+	Graphics_pipeline opaque, mask, blend;
+};
+
 struct Shadow_pipeline
 {
 	static constexpr vk::Format shadow_map_format = vk::Format::eD24UnormS8Uint;
@@ -20,12 +25,12 @@ struct Shadow_pipeline
 	// At Shadow Vert, push_constant
 	using Model_matrix = General_model_matrix;
 
-	Descriptor_set_layout descriptor_set_layout_shadow_matrix,  // @vert, set = 0
-		descriptor_set_layout_texture;                          // @frag, set = 1
+	Descriptor_set_layout descriptor_set_layout_shadow_matrix,  // @vert, set = 0, shadow matrix
+		descriptor_set_layout_texture,                          // @frag, set = 1, textures
+		descriptor_set_layout_skin;                             // @vert, set = 2, skin matrices
 
-	Pipeline_layout   pipeline_layout;
-	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, single_sided_pipeline_blend, double_sided_pipeline,
-		double_sided_pipeline_alpha, double_sided_pipeline_blend;
+	Pipeline_layout    pipeline_layout, pipeline_layout_skin;
+	Model_pipeline_set single_side, double_side, single_side_skin, double_side_skin;
 	Render_pass       render_pass;
 
 	static vk::ClearValue clear_value;
@@ -52,12 +57,12 @@ struct Gbuffer_pipeline
 	// At Gbuffer Vert, push_constant
 	using Model_matrix = General_model_matrix;
 
-	Descriptor_set_layout descriptor_set_layout_texture,  // @frag, set = 1
-		descriptor_set_layout_camera;                     // @vert, set = 0, binding = 0
+	Descriptor_set_layout descriptor_set_layout_texture,  // @frag, set = 1, textures
+		descriptor_set_layout_camera,                     // @vert, set = 0, camera matrix
+		descriptor_set_layout_skin;                       // @vert, set = 2, skin matrices
 
-	Pipeline_layout   pipeline_layout;
-	Graphics_pipeline single_sided_pipeline, single_sided_pipeline_alpha, single_sided_pipeline_blend, double_sided_pipeline,
-		double_sided_pipeline_alpha, double_sided_pipeline_blend;
+	Pipeline_layout    pipeline_layout, pipeline_layout_skin;
+	Model_pipeline_set single_side, double_side, single_side_skin, double_side_skin;
 	Render_pass       render_pass;
 
 	static std::array<vk::ClearValue, 5> clear_values;

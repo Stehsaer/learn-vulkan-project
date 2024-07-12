@@ -8,11 +8,12 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::DescriptorPool, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Descriptor_pool(const Device& device, Const_array_proxy<vk::DescriptorPoolSize> pool_sizes, uint32_t max_sets);
 
-		void clean() override;
 		~Descriptor_pool() override { clean(); }
 	};
 
@@ -20,17 +21,20 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::DescriptorSetLayout, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Descriptor_set_layout(const Device& device, Const_array_proxy<vk::DescriptorSetLayoutBinding> bindings);
 
-		void clean() override;
 		~Descriptor_set_layout() override { clean(); }
 	};
 
 	class Pipeline_layout : public Child_resource<vk::PipelineLayout, Device>
 	{
 		using Child_resource<vk::PipelineLayout, Device>::Child_resource;
+
+		void clean() override;
 
 	  public:
 
@@ -40,13 +44,14 @@ namespace VKLIB_HPP_NAMESPACE
 			Const_array_proxy<vk::PushConstantRange>   push_constant_ranges
 		);
 
-		void clean() override;
 		~Pipeline_layout() override { clean(); }
 	};
 
 	class Descriptor_set : public Child_resource<vk::DescriptorSet, Descriptor_pool>
 	{
 		using Child_resource<vk::DescriptorSet, Descriptor_pool>::Child_resource;
+
+		void clean() override;
 
 	  public:
 
@@ -56,7 +61,6 @@ namespace VKLIB_HPP_NAMESPACE
 			Const_array_proxy<vk::DescriptorSetLayout> layouts
 		);
 
-		void clean() override;
 		~Descriptor_set() override { clean(); }
 	};
 
@@ -64,11 +68,12 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::ShaderModule, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Shader_module(const Device& device, Const_array_proxy<uint8_t> code);
 
-		void clean() override;
 		~Shader_module() override { clean(); }
 
 		vk::PipelineShaderStageCreateInfo stage_info(vk::ShaderStageFlagBits stage, const char* entry_name = "main")
@@ -79,6 +84,8 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::RenderPass, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Render_pass(
@@ -88,7 +95,6 @@ namespace VKLIB_HPP_NAMESPACE
 			Const_array_proxy<vk::SubpassDependency>     subpass_dependencies
 		);
 
-		void clean() override;
 		~Render_pass() override { clean(); }
 	};
 
@@ -98,17 +104,20 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Pipeline_base::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Graphics_pipeline(const Device& device, const vk::GraphicsPipelineCreateInfo& create_info);
 
-		void clean() override;
 		~Graphics_pipeline() override { clean(); }
 	};
 
 	class Compute_pipeline : public Pipeline_base
 	{
 		using Pipeline_base::Child_resource;
+
+		void clean() override;
 
 	  public:
 
@@ -118,13 +127,14 @@ namespace VKLIB_HPP_NAMESPACE
 			const vk::PipelineShaderStageCreateInfo& shader_stage
 		);
 
-		void clean() override;
 		~Compute_pipeline() override { clean(); }
 	};
 
 	class Framebuffer : public Child_resource<vk::Framebuffer, Device>
 	{
 		using Child_resource<vk::Framebuffer, Device>::Child_resource;
+
+		void clean() override;
 
 	  public:
 
@@ -135,7 +145,6 @@ namespace VKLIB_HPP_NAMESPACE
 			vk::Extent3D                     extent
 		);
 
-		void clean() override;
 		~Framebuffer() override { clean(); }
 	};
 }

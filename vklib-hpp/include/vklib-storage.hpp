@@ -9,6 +9,8 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Vma_allocation<vk::Image>::Vma_allocation;
 
+		void clean() override;
+
 	  public:
 
 		Image(
@@ -27,13 +29,14 @@ namespace VKLIB_HPP_NAMESPACE
 			vk::ImageCreateFlags    create_flags   = {}
 		);
 
-		void clean() override;
 		~Image() override { clean(); }
 	};
 
 	class Image_view : public Child_resource<vk::ImageView, Device>
 	{
 		using Child_resource<vk::ImageView, Device>::Child_resource;
+
+		void clean() override;
 
 	  public:
 
@@ -58,7 +61,6 @@ namespace VKLIB_HPP_NAMESPACE
 			const vk::ComponentMapping&      components = {}
 		);
 
-		void clean() override;
 		~Image_view() override { clean(); }
 	};
 
@@ -66,17 +68,20 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::Sampler, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Image_sampler(const Device& device, const vk::SamplerCreateInfo& create_info);
 
-		void clean() override;
 		~Image_sampler() override { clean(); }
 	};
 
 	class Buffer : public Vma_allocation<vk::Buffer>
 	{
 		using Vma_allocation<vk::Buffer>::Vma_allocation;
+
+		void clean() override;
 
 	  public:
 
@@ -89,7 +94,6 @@ namespace VKLIB_HPP_NAMESPACE
 			VmaAllocationCreateFlags mem_flags = {}
 		);
 
-		void clean() override;
 		~Buffer() override { clean(); }
 
 		template <size_t Size>

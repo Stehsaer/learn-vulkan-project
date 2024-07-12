@@ -19,13 +19,14 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		using Child_resource<vk::Fence, Device>::Child_resource;
 
+		void clean() override;
+
 	  public:
 
 		Fence(const Device& device, vk::FenceCreateFlags create_flags = {});
 
 		vk::Result wait(uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
 
-		void clean() override;
 		~Fence() override { clean(); }
 	};
 }

@@ -3,6 +3,39 @@
 #include "pipeline.hpp"
 #include "render-params.hpp"
 
+class Node_traverser
+{
+  public:
+
+	struct Traverse_params
+	{
+		using Node_lut = std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>;
+
+		const io::mesh::gltf::Model* model          = nullptr;
+		const Node_lut*              node_trans_lut = nullptr;
+
+		glm::mat4 base_transformation = glm::mat4(1.0);
+
+		uint32_t scene_idx;
+	};
+
+	struct Traverse_node
+	{
+		glm::mat4 transform = {1.0};
+		bool      traversed = false;
+	};
+
+	void traverse(const Traverse_params& params);
+
+	auto operator[](uint32_t idx) const { return transform_list[idx]; }
+
+  private:
+
+	std::vector<Traverse_node> transform_list;
+
+	void traverse(const Traverse_params& params, uint32_t node_idx, const glm::mat4& transform);
+};
+
 struct Drawcall
 {
 	uint32_t                  node_idx;
@@ -66,14 +99,13 @@ struct Drawlist
 	struct Draw_params
 	{
 		Command_buffer                       command_buffer;
-		Graphics_pipeline                    opaque_pipeline;
-		Graphics_pipeline                    mask_pipeline;
-		Graphics_pipeline                    blend_pipeline;
+		Model_pipeline_set                   pipeline_set;
 		Pipeline_layout                      pipeline_layout;
 		std::function<void(const Drawcall&)> bind_material_func;
 		std::function<void(const Drawcall&)> bind_vertex_func_opaque;
 		std::function<void(const Drawcall&)> bind_vertex_func_mask;
 		std::function<void(const Drawcall&)> bind_vertex_func_blend;
+		std::function<void(const Drawcall&)> bind_node_func = nullptr;
 	};
 
 	void draw(const Draw_params& params) const;
@@ -85,17 +117,12 @@ class Drawcall_generator
 
 	struct Gen_params
 	{
-		using Node_lut = std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>;
-
 		const io::mesh::gltf::Model* model          = nullptr;
-		const Node_lut*              node_trans_lut = nullptr;
+		const Node_traverser*        node_traverser = nullptr;
 
 		algorithm::geometry::frustum::Frustum frustum;
 		glm::vec3                             eye_position;
 		glm::vec3                             eye_path;
-		glm::mat4                             base_transformation = glm::mat4(1.0);
-
-		uint32_t scene_idx;
 
 		void set_by_camera_parameter(const Camera_parameter& param)
 		{
@@ -132,16 +159,12 @@ class Drawcall_generator
 
 	const Drawlist& get_single_sided_drawlist() const { return single_sided; }
 	const Drawlist& get_double_sided_drawlist() const { return double_sided; }
-
-	glm::mat4 get_node_cache(uint32_t idx) const { return idx >= node_trans_cache.size() ? glm::mat4(1.0) : node_trans_cache[idx]; }
+	const Drawlist& get_single_sided_skin_drawlist() const { return single_sided_skin; }
+	const Drawlist& get_double_sided_skin_drawlist() const { return double_sided_skin; }
 
 	Gen_result generate(const Gen_params& params);
 
   private:
 
-	Drawlist single_sided, double_sided;
-
-	std::vector<glm::mat4> node_trans_cache;
-
-	Gen_result generate_node(const Gen_params& params, uint32_t node_idx, const glm::mat4& transformation);
+	Drawlist single_sided, double_sided, single_sided_skin, double_sided_skin;
 };

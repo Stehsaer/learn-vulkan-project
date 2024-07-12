@@ -12,39 +12,47 @@
 #include "vklib-sync.hpp"
 
 #include <set>
+#include <unordered_set>
 
 namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 {
-	namespace data_parser
+	inline std::optional<uint32_t> to_optional(int val)
 	{
-		struct Parse_error : public Exception
-		{
-			Parse_error(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
-				Exception(std::format("Parser Error: {}", msg), loc)
-			{
-			}
-		};
-
-		template <typename T>
-		std::vector<T> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
-
-		template <>
-		std::vector<uint32_t> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
-
-		template <typename T>
-		concept Glm_float_type = utility::glm_type_check::check_glm_type<T, float>();
-
-		// Acquire data in accessor of type T, which is made of arbitrary number of `float` components.
-		// `T` must be float or any of the glm genTypes.
-		template <Glm_float_type T>
-		std::vector<T> acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
-
-		// Acquire data in accessor.
-		// `T` must be float or any of the glm genTypes.
-		// This function provides extra ability to decode normalized data to float according to glTF Spec.
-		template <Glm_float_type T>
-		std::vector<T> acquire_normalized_accessor(const tinygltf::Model& model, uint32_t accessor_idx);
+		if (val < 0)
+			return std::nullopt;
+		else
+			return (uint32_t)val;
 	}
+
+	struct Gltf_parse_error : public Exception
+	{
+		std::string description;
+
+		Gltf_parse_error(
+			const std::string&          msg,
+			const std::string&          description,
+			const std::source_location& loc = std::source_location::current()
+		) :
+			Exception(std::format("(Gltf Parse Error) {}", msg), description, loc)
+		{
+		}
+	};
+
+	struct Gltf_spec_violation : public Gltf_parse_error
+	{
+		std::string reference;
+
+		Gltf_spec_violation(
+			const std::string&          msg,
+			const std::string&          description,
+			const std::string&          reference,
+			const std::source_location& loc = std::source_location::current()
+		) :
+			Gltf_parse_error(std::format("Violation of Gltf Spec: {}", msg), std::format("{}. See: {}", description, reference), loc),
+			reference(reference)
+		{
+		}
+	};
 
 	struct Loader_config
 	{
@@ -78,14 +86,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		Load_stage* load_stage   = nullptr;
 		float*      sub_progress = nullptr;
-	};
-
-	struct Gltf_parse_error : public Exception
-	{
-		Gltf_parse_error(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
-			Exception(std::format("Gltf Parse Error: {}", msg), loc)
-		{
-		}
 	};
 
 	struct Texture
@@ -148,18 +148,17 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		uint32_t  albedo_idx, metal_roughness_idx, normal_idx, emissive_idx, occlusion_idx;
 		bool      double_sided;
 
-		float      alpha_cutoff;
-		Alpha_mode alpha_mode;
+		Alpha_mode alpha_mode = Alpha_mode::Opaque;
 
 		struct Mat_params
 		{
-			alignas(16) glm::vec3 emissive_multiplier;
-			alignas(16) glm::vec2 metalness_roughness_multiplier;
-			alignas(16) glm::vec3 base_color_multiplier;
-			alignas(4) float alpha_cutoff;
-			alignas(4) float normal_scale;
-			alignas(4) float occlusion_strength;
-			alignas(4) float emissive_strength = 1.0;
+			alignas(16) glm::vec3 emissive_multiplier{1.0};
+			alignas(16) glm::vec2 metalness_roughness_multiplier{1.0};
+			alignas(16) glm::vec3 base_color_multiplier{1.0};
+			alignas(4) float alpha_cutoff{0.5};
+			alignas(4) float normal_scale{1.0};
+			alignas(4) float occlusion_strength{1.0};
+			alignas(4) float emissive_strength{1.0};
 		} params;
 	};
 
@@ -179,28 +178,44 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		std::string name;
 
-		uint32_t              mesh_idx;
+		std::optional<uint32_t> mesh_idx;
 		std::vector<uint32_t> children;
 
 		Node_transformation transformation;
 
-		void set(const tinygltf::Node& node);
+		std::optional<uint32_t> skin_idx;
 
-		bool has_mesh() const { return mesh_idx != 0xFFFFFFFF; }
+		void set(const tinygltf::Node& node);
+	};
+
+	struct Skin
+	{
+		std::vector<uint32_t>  joints;
+		std::vector<glm::mat4> inverse_bind_matrices;
+	};
+
+	struct Primitive_skin
+	{
+		uint32_t joint_buffer, joint_offset;
+		uint32_t weight_buffer, weight_offset;
 	};
 
 	struct Primitive
 	{
-		uint32_t material_idx, vertex_count;
+		bool enabled = true;
+
+		std::optional<uint32_t> material_idx;
+
+		uint32_t vertex_count;
 
 		uint32_t position_buffer, position_offset;
 		uint32_t normal_buffer, normal_offset;
 		uint32_t tangent_buffer, tangent_offset;
 		uint32_t uv_buffer, uv_offset;
 
-		glm::vec3 min, max;
+		std::optional<Primitive_skin> skin = std::nullopt;
 
-		bool has_material() const { return material_idx != 0xFFFFFFFF; }
+		glm::vec3 min, max;
 	};
 
 	struct Mesh
@@ -224,16 +239,24 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	struct Animation_parse_error : Gltf_parse_error
 	{
-		Animation_parse_error(const std::string& msg, std::source_location loc = std::source_location::current()) :
-			Gltf_parse_error(std::format("Animation Parse Error: {}", msg), loc)
+		Animation_parse_error(
+			const std::string&   msg,
+			const std::string&   detail = "",
+			std::source_location loc    = std::source_location::current()
+		) :
+			Gltf_parse_error(std::format("Error while parsing animation {}", msg), detail, loc)
 		{
 		}
 	};
 
-	struct Animation_error : Exception
+	struct Animation_runtime_error : Exception
 	{
-		Animation_error(const std::string& msg, std::source_location loc = std::source_location::current()) :
-			Exception(std::format("Animation Error: {}", msg), loc)
+		Animation_runtime_error(
+			const std::string&   msg,
+			const std::string&   detail = "",
+			std::source_location loc    = std::source_location::current()
+		) :
+			Exception(std::format("Animation Error: {}", msg), detail, loc)
 		{
 		}
 	};
@@ -326,11 +349,11 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	struct Animation_channel
 	{
-		uint32_t         node    = 0xffffffff;
+		std::optional<uint32_t>         node;
 		Animation_target target  = Animation_target::Translation;
-		uint32_t         sampler = 0xffffffff;
+		std::optional<uint32_t>         sampler;
 
-		bool is_valid() const { return node != 0xffffffff && sampler != 0xffffffff; }
+		bool is_valid() const { return node && sampler; }
 
 		// Parse animation channel, if not valid returns `false`
 		bool load(const tinygltf::AnimationChannel& animation);
@@ -358,9 +381,10 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		std::vector<Node>         nodes;
 		std::vector<Material>     materials;
 		std::vector<Mesh>         meshes;
-		std::vector<Buffer>       vec3_buffers, vec2_buffers;
+		std::vector<Buffer>       vec3_buffers, vec2_buffers, joint_buffers, weight_buffers;
 		std::vector<Scene>        scenes;
 		std::vector<Animation>    animations;
+		std::vector<Skin>         skins;
 
 		Descriptor_pool material_descriptor_pool;
 
@@ -376,8 +400,10 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		{
 			inline static constexpr size_t max_single_size = 64 * 1048576;  // MAX. 64M per block
 
-			std::vector<std::vector<glm::vec3>> vec3_data;
-			std::vector<std::vector<glm::vec2>> vec2_data;
+			std::vector<std::vector<glm::vec3>>    vec3_data;
+			std::vector<std::vector<glm::vec2>>    vec2_data;
+			std::vector<std::vector<glm::u16vec4>> joint_data;
+			std::vector<std::vector<glm::vec4>>    weight_data;
 		};
 
 		void load(Loader_context& loader_context, const tinygltf::Model& gltf_model);
@@ -389,6 +415,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		void load_all_nodes(const tinygltf::Model& model);
 		void load_all_meshes(Loader_context& loader_context, const tinygltf::Model& gltf_model);
 		void load_all_animations(const tinygltf::Model& model);
+		void load_all_skins(const tinygltf::Model& model);
 
 		void generate_buffers(Loader_context& loader_context, const Mesh_data_context& mesh_context);
 
@@ -399,103 +426,6 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 // Implementations
 namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 {
-	template <data_parser::Glm_float_type T>
-	std::vector<T> data_parser::acquire_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
-	{
-		std::vector<T> dst;
-
-		const auto& accessor    = model.accessors[accessor_idx];
-		const auto& buffer_view = model.bufferViews[accessor.bufferView];
-		const auto& buffer      = model.buffers[buffer_view.buffer];
-
-		const auto* ptr = reinterpret_cast<const T*>(buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset);
-		dst.resize(accessor.count);
-
-		if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT)
-			throw Parse_error(std::format("Data type incompatible with float32: {}", accessor.componentType));
-
-		std::copy(ptr, ptr + accessor.count, dst.begin());
-
-		return dst;
-	}
-
-	template <data_parser::Glm_float_type T>
-	std::vector<T> data_parser::acquire_normalized_accessor(const tinygltf::Model& model, uint32_t accessor_idx)
-	{
-		std::vector<T> dst;
-
-		const auto& accessor    = model.accessors[accessor_idx];
-		const auto& buffer_view = model.bufferViews[accessor.bufferView];
-		const auto& buffer      = model.buffers[buffer_view.buffer];
-
-		const auto* ptr = buffer.data.data() + buffer_view.byteOffset + accessor.byteOffset;
-		dst.resize(accessor.count);
-
-		static constexpr auto supported_formats = std::to_array(
-			{TINYGLTF_COMPONENT_TYPE_FLOAT,
-			 TINYGLTF_COMPONENT_TYPE_BYTE,
-			 TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE,
-			 TINYGLTF_COMPONENT_TYPE_SHORT,
-			 TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT}
-		);
-
-		if (std::count(supported_formats.begin(), supported_formats.end(), accessor.componentType) == 0)
-			throw Parse_error(std::format("Data type incompatible with float32: {}", accessor.componentType));
-
-		auto copy_to_dst = [&](const auto* ptr, auto transformation)
-		{
-			for (auto i : Range(sizeof(T) / sizeof(float) * accessor.count))
-				reinterpret_cast<float*>(dst.data())[i] = transformation(ptr[i]);
-		};
-
-		switch (accessor.componentType)
-		{
-		case TINYGLTF_COMPONENT_TYPE_FLOAT:
-		{
-			const auto* fptr = reinterpret_cast<const T*>(ptr);
-			std::copy(fptr, fptr + accessor.count, dst.begin());
-			break;
-		}
-
-		case TINYGLTF_COMPONENT_TYPE_BYTE:
-		{
-			auto transformation = [](int8_t val) -> float
-			{
-				return std::max(val / 127.0, -1.0);
-			};
-			copy_to_dst((const int8_t*)ptr, transformation);
-		}
-
-		case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-		{
-			auto transformation = [](uint8_t val) -> float
-			{
-				return val / 255.0;
-			};
-			copy_to_dst((const uint8_t*)ptr, transformation);
-		}
-
-		case TINYGLTF_COMPONENT_TYPE_SHORT:
-		{
-			auto transformation = [](int16_t val) -> float
-			{
-				return std::max(val / 32767.0, -1.0);
-			};
-			copy_to_dst((const int16_t*)ptr, transformation);
-		}
-
-		case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-		{
-			auto transformation = [](uint16_t val) -> float
-			{
-				return val / 65535.0;
-			};
-			copy_to_dst((const uint16_t*)ptr, transformation);
-		}
-		}
-
-		return dst;
-	}
 
 	template <Vec3_or_quat T>
 	T Animation_sampler<T>::operator[](float time) const
@@ -531,7 +461,10 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 			return cubic_interpolate(lower, upper, time);
 
 		default:
-			throw Animation_error("Unknown mode");
+			throw Animation_runtime_error(
+				"Unknown interpolation mode",
+				"This is very likely a case of data corruption or APPLICATION bug"
+			);
 		}
 	}
 }

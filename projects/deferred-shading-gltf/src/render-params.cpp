@@ -1,4 +1,5 @@
 #include "render-params.hpp"
+#include <numeric>
 
 void Render_source::generate_material_data(const Environment& env, const Pipeline_set& pipeline)
 {
@@ -164,6 +165,159 @@ void Render_source::generate_material_data(const Environment& env, const Pipelin
 
 		material_data.emplace_back(descriptor_set, albedo_only_set);
 	}
+}
+
+void Render_source::generate_skin_data(const Environment& env, const Pipeline_set& pipeline)
+{
+	if (model->skins.empty()) return;  // Skip if no skin present
+
+	/* Preparation */
+
+	skin_descriptors.clear();
+	skin_descriptors.reserve(model->skins.size());
+
+	skin_matrix_cpu.clear();
+	skin_matrix_cpu.reserve(model->skins.size());
+
+	// Total count of matrices
+	const uint32_t total_count = std::accumulate(
+		model->skins.begin(),
+		model->skins.end(),
+		0u,
+		[](uint32_t src, const io::mesh::gltf::Skin& add) -> uint32_t
+		{
+			return src + add.joints.size();
+		}
+	);
+	skin_matrix_count = total_count;
+
+	/* Create Descriptor Pool */
+
+	const vk::DescriptorPoolSize pool_size = {vk::DescriptorType::eStorageBuffer, total_count * 2};  // 2 Storage Buffers for each skin
+	skin_descriptor_pool                   = Descriptor_pool(env.device, {pool_size}, total_count * 2);  // Maximum = 2 * Skin Count
+
+	/* Create Descriptors */
+
+	const auto gbuffer_layouts
+		= std::vector<vk::DescriptorSetLayout>(model->skins.size(), pipeline.gbuffer_pipeline.descriptor_set_layout_skin),
+		shadow_layouts
+		= std::vector<vk::DescriptorSetLayout>(model->skins.size(), pipeline.shadow_pipeline.descriptor_set_layout_skin);
+
+	const auto gbuffer_descriptors = Descriptor_set::create_multiple(env.device, skin_descriptor_pool, gbuffer_layouts),
+			   shadow_descriptors  = Descriptor_set::create_multiple(env.device, skin_descriptor_pool, shadow_layouts);
+
+	for (auto i : Range(model->skins.size())) skin_descriptors.emplace_back(gbuffer_descriptors[i], shadow_descriptors[i]);
+
+	/* Create full storage buffer */
+
+	skin_matrix_data_gpu = Buffer(
+		env.allocator,
+		total_count * sizeof(glm::mat4),
+		vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eStorageBuffer,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+	env.debug_marker.set_object_name(skin_matrix_data_gpu, "Skin Matrices Buffer");
+
+	skin_matrix_data_staging = Buffer(
+		env.allocator,
+		total_count * sizeof(glm::mat4),
+		vk::BufferUsageFlagBits::eTransferSrc,
+		vk::SharingMode::eExclusive,
+		VMA_MEMORY_USAGE_CPU_TO_GPU
+	);
+	env.debug_marker.set_object_name(skin_matrix_data_staging, "Skin Matrices Staging Buffer");
+
+	// Create staging buffers and descriptors
+
+	uint32_t count = 0;
+
+	for (auto i : Range(model->skins.size()))
+	{
+		const auto& skin = model->skins[i];
+
+		// Create CPU array
+
+		skin_matrix_cpu.emplace_back(skin.joints.size());
+
+		// Create Descriptor
+
+		const vk::DescriptorBufferInfo buffer_info
+			= {skin_matrix_data_gpu, count * sizeof(glm::mat4), skin.joints.size() * sizeof(glm::mat4)};
+		count += skin.joints.size();
+
+		vk::WriteDescriptorSet write_gbuffer, write_shadow;
+
+		write_gbuffer.setDescriptorCount(1)
+			.setDescriptorType(vk::DescriptorType::eStorageBuffer)
+			.setDstBinding(0)
+			.setDstSet(gbuffer_descriptors[i])
+			.setPBufferInfo(&buffer_info);
+		write_shadow.setDescriptorCount(1)
+			.setDescriptorType(vk::DescriptorType::eStorageBuffer)
+			.setDstBinding(0)
+			.setDstSet(shadow_descriptors[i])
+			.setPBufferInfo(&buffer_info);
+
+		env.device->updateDescriptorSets({write_gbuffer, write_shadow}, {});
+	}
+}
+
+void Render_source::stream_skin_data(const Environment& env [[maybe_unused]], const Command_buffer& command_buffer)
+{
+	auto* mapped_memory = (glm::mat4*)skin_matrix_data_staging.map_memory();
+	{
+		uint32_t offset = 0;
+
+		for (auto i : Range(model->skins.size()))
+		{
+			std::copy(skin_matrix_cpu[i].begin(), skin_matrix_cpu[i].end(), mapped_memory + offset);
+			offset += model->skins[i].joints.size();
+		}
+	}
+	skin_matrix_data_staging.unmap_memory();
+
+	command_buffer.begin();
+
+	// Sync [Transfer Write] after [Shader Read]
+	command_buffer->pipelineBarrier(
+		vk::PipelineStageFlagBits::eFragmentShader,
+		vk::PipelineStageFlagBits::eTransfer,
+		vk::DependencyFlagBits::eByRegion,
+		{},
+		vk::BufferMemoryBarrier(
+			vk::AccessFlagBits::eShaderRead,
+			vk::AccessFlagBits::eTransferWrite,
+			vk::QueueFamilyIgnored,
+			vk::QueueFamilyIgnored,
+			skin_matrix_data_gpu,
+			0,
+			skin_matrix_count * sizeof(glm::mat4)
+		),
+		{}
+	);
+
+	command_buffer.copy_buffer(skin_matrix_data_gpu, skin_matrix_data_staging, 0, 0, skin_matrix_count * sizeof(glm::mat4));
+
+	// Sync [Shader Read] after [Transfer Write]
+	command_buffer->pipelineBarrier(
+		vk::PipelineStageFlagBits::eTransfer,
+		vk::PipelineStageFlagBits::eFragmentShader,
+		vk::DependencyFlagBits::eByRegion,
+		{},
+		vk::BufferMemoryBarrier(
+			vk::AccessFlagBits::eTransferWrite,
+			vk::AccessFlagBits::eShaderRead,
+			vk::QueueFamilyIgnored,
+			vk::QueueFamilyIgnored,
+			skin_matrix_data_gpu,
+			0,
+			skin_matrix_count * sizeof(glm::mat4)
+		),
+		{}
+	);
+
+	command_buffer.end();
 }
 
 static glm::vec3 get_sunlight_direction(float sunlight_yaw, float sunlight_pitch)

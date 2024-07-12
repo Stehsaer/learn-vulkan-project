@@ -40,6 +40,7 @@ void App_load_model_logic::load_thread_work()
 
 		core->source.model_path = load_path;
 		core->source.generate_material_data(core->env, core->pipeline_set);
+		core->source.generate_skin_data(core->env, core->pipeline_set);
 
 		core->env.log_msg("Loaded model");
 	}

@@ -6,8 +6,21 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 {
 	Stbi_image_data<uint8_t> read_8bit(const std::string& path, int request_channel)
 	{
-		auto img_data = read(path);
-		return read_8bit(img_data, request_channel);
+		try
+		{
+			auto img_data = read(path);
+			return read_8bit(img_data, request_channel);
+		}
+		catch (const Image_exception& e)
+		{
+			throw[=]
+			{
+				auto rethrow     = e;
+				rethrow.filename = path;
+				return rethrow;
+			}
+			();
+		}
 	}
 
 	Stbi_image_data<uint8_t> read_8bit(std::span<const uint8_t> file_data, int request_channel)
@@ -22,7 +35,7 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 		if (img_data == nullptr)
 		{
 			const char* const reason = stbi_failure_reason();
-			throw Image_exception(std::format("Can't read image: {}", reason));
+			throw Image_exception("Failed to read image", "[Binary Input]", reason);
 		}
 
 		Stbi_image_data<uint8_t> ret = {
@@ -38,8 +51,21 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 
 	Stbi_image_data<uint16_t> read_16bit(const std::string& path, int request_channel)
 	{
-		auto img_data = read(path);
-		return read_16bit(img_data, request_channel);
+		try
+		{
+			auto img_data = read(path);
+			return read_16bit(img_data, request_channel);
+		}
+		catch (const Image_exception& e)
+		{
+			throw[=]
+			{
+				auto rethrow     = e;
+				rethrow.filename = path;
+				return rethrow;
+			}
+			();
+		}
 	}
 
 	Stbi_image_data<uint16_t> read_16bit(std::span<const uint8_t> file_data, int request_channel)
@@ -54,7 +80,7 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 		if (img_data == nullptr)
 		{
 			const char* const reason = stbi_failure_reason();
-			throw Image_exception(std::format("Can't read image: {}", reason));
+			throw Image_exception("Failed to read image", "[Binary Input]", reason);
 		}
 
 		Stbi_image_data<uint16_t> ret = {
@@ -70,8 +96,21 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 
 	Stbi_image_data<float> read_hdri(const std::string& path)
 	{
-		auto img_data = read(path);
-		return read_hdri(img_data);
+		try
+		{
+			auto img_data = read(path);
+			return read_hdri(img_data);
+		}
+		catch (const Image_exception& e)
+		{
+			throw[=]
+			{
+				auto rethrow     = e;
+				rethrow.filename = path;
+				return rethrow;
+			}
+			();
+		}
 	}
 
 	Stbi_image_data<float> read_hdri(std::span<const uint8_t> file_data)
@@ -86,7 +125,7 @@ namespace VKLIB_HPP_NAMESPACE::io::images
 		if (img_data == nullptr)
 		{
 			const char* const reason = stbi_failure_reason();
-			throw Image_exception(std::format("Can't read image: {}", reason));
+			throw Image_exception("Failed to read image", "[Binary Input]", reason);
 		}
 
 		Stbi_image_data<float> ret

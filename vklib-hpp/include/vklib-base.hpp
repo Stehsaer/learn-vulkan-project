@@ -72,11 +72,12 @@ namespace VKLIB_HPP_NAMESPACE
 
 	struct Exception
 	{
-		std::string          msg;
+		std::string          msg, detail;
 		std::source_location loc;
 
-		Exception(std::string _msg, const std::source_location& _loc = std::source_location::current()) :
+		Exception(std::string _msg, std::string detail = "", const std::source_location& _loc = std::source_location::current()) :
 			msg(std::move(_msg)),
+			detail(std::move(detail)),
 			loc(_loc)
 		{
 		}
@@ -92,7 +93,7 @@ namespace VKLIB_HPP_NAMESPACE
 			std::string                 expect = "",
 			const std::source_location& _loc   = std::source_location::current()
 		) :
-			Exception(msg, _loc),
+			Exception(msg, std::format("Parameter \"{}\" Invalid. Expects: {}", param_name, expect), _loc),
 			param_name(std::move(param_name)),
 			expect(std::move(expect))
 		{
@@ -113,6 +114,8 @@ namespace VKLIB_HPP_NAMESPACE
 
 		bool is_unique() const { return data.get() != nullptr && data.use_count() == 1; }
 
+		virtual void clean() = 0;
+
 	  public:
 
 		Mono_resource() :
@@ -120,7 +123,6 @@ namespace VKLIB_HPP_NAMESPACE
 		{
 		}
 
-		virtual void clean()     = 0;
 		virtual ~Mono_resource() = default;
 
 		Mono_resource(const Mono_resource&) = default;
@@ -128,6 +130,9 @@ namespace VKLIB_HPP_NAMESPACE
 
 		Mono_resource& operator=(const Mono_resource& other)
 		{
+			if (other.data == data) [[unlikely]]
+				return *this;
+
 			clean();
 			data = other.data;
 
@@ -136,6 +141,9 @@ namespace VKLIB_HPP_NAMESPACE
 
 		Mono_resource& operator=(Mono_resource&& other) noexcept
 		{
+			if (other.data == data) [[unlikely]]
+				return *this;
+
 			clean();
 			data = std::move(other.data);
 

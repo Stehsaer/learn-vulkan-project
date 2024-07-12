@@ -26,6 +26,8 @@ namespace VKLIB_HPP_NAMESPACE
 
 		std::optional<vk::AllocationCallbacks> allocation_callback;
 
+		void clean() override;
+
 	  public:
 
 		Instance(
@@ -34,7 +36,6 @@ namespace VKLIB_HPP_NAMESPACE
 			Const_array_proxy<const char*> extensions
 		);
 
-		void clean() override;
 		~Instance() override { clean(); }
 	};
 

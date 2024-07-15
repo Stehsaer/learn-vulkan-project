@@ -37,6 +37,8 @@ namespace VKLIB_HPP_NAMESPACE
 		);
 
 		~Instance() override { clean(); }
+
+		static bool query_instance_extension_support(const char* extension_name);
 	};
 
 	struct Window_exception : public Exception

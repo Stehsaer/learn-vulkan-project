@@ -25,6 +25,18 @@ namespace VKLIB_HPP_NAMESPACE
 		if (is_unique()) (*this)->destroy();
 	}
 
+	bool Instance::query_instance_extension_support(const char* extension_name)
+	{
+		const auto supported_list = vk::enumerateInstanceExtensionProperties();
+
+		auto pred = [extension_name](const vk::ExtensionProperties& properties) -> bool
+		{
+			return strcmp(extension_name, properties.extensionName) == 0;
+		};
+
+		return std::count_if(supported_list.begin(), supported_list.end(), pred) >= 1;
+	}
+
 #pragma endregion
 
 #pragma region "Surface"

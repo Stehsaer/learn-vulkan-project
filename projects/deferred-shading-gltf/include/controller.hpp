@@ -14,8 +14,8 @@ struct Camera_controller
 	float     current_yaw = 0, current_pitch = 0, current_log_distance = 0;  // angles in degrees
 	glm::vec3 current_eye_center = glm::vec3(0.0);
 
-	float yaw_sensitivity = 0.05, pitch_sensitivity = 0.05, shift_x_sensitivity = 0.001, shift_y_sensitivity = 0.001,
-		  zoom_sensitivity = 0.2, lerp_speed = 10;
+	float yaw_sensitivity = 0.1, pitch_sensitivity = 0.1, shift_x_sensitivity = 0.001, shift_y_sensitivity = 0.001,
+		  zoom_sensitivity = 0.2, lerp_speed = 15;
 
 	void update(ImGuiIO& io);
 

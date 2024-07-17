@@ -133,11 +133,6 @@ struct Render_params
 	std::array<float, 3> shadow_near, shadow_far;
 	float                csm_blend_factor = 0.5;
 
-	/*====== Debug ======*/
-
-	bool show_shadow_perspective  = false;
-	int  shadow_perspective_layer = 0;
-
 	/*====== Light Source ======*/
 
 	Directional_light sun{

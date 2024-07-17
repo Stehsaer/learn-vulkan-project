@@ -183,15 +183,17 @@ layout(set = 0, binding = 3) uniform sampler2D bloom_in;
 
 const int bloom_count = 7;
 
-const float exposure_const = 9.6; //4.5947934199881;
+const float exposure_const = 9.6;
 
 void main()
 {
+	const vec2 fragcoord = gl_FragCoord.xy;
+
 	float luminance_div = exposure_const * exp2(exposure.luminance);
 
 	vec3 bloom = texture(bloom_in, uv).rgb;
 
-	vec3 luminance = texture(luminance_in, uv).rgb * params.exposure;
+	vec3 luminance = texture(luminance_in, fragcoord).rgb * params.exposure;
 	
 	luminance += bloom * params.bloom_intensity;
 

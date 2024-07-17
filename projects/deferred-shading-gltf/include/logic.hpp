@@ -141,7 +141,7 @@ class App_render_logic : public Application_logic_base
 	void ui_logic();  // All ui logic goes here
 
 	void stat_panel();     // Real-time stats panel
-	void control_tab();    // Control panel
+	void lighting_tab();   // Control panel
 	void system_tab();     // System panel
 	void animation_tab();  // Animation panel, only activate if animation present
 	void preset_tab();     // Debug panel

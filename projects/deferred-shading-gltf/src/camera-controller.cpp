@@ -3,8 +3,8 @@
 template <typename T>
 static T lerp(const T& target, const T& current, float speed, float dt)
 {
-	const float mix_factor = 1 - exp(-speed * dt);
-	return current * (1 - mix_factor) + target * mix_factor;
+	const float mix_factor = exp(-dt * speed);
+	return current * mix_factor + target * (1 - mix_factor);
 }
 
 void Camera_controller::update(ImGuiIO& io)
@@ -61,7 +61,6 @@ void Camera_controller::update(ImGuiIO& io)
 	// Mouse wheel: Zoom
 	if (io.MouseWheel != 0)
 	{
-
 		target_log_distance -= io.MouseWheel * zoom_sensitivity * local_zoom_sensitivity;
 	}
 }

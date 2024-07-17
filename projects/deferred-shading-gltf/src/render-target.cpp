@@ -608,7 +608,8 @@ void Composite_rt::create(
 										 .setMinLod(0.0)
 										 .setMaxLod(1.0)
 										 .setMinFilter(vk::Filter::eNearest)
-										 .setMagFilter(vk::Filter::eNearest);
+										 .setMagFilter(vk::Filter::eNearest)
+										 .setUnnormalizedCoordinates(true);
 	input_sampler = Image_sampler(env.device, sampler_create_info);
 
 	params_buffer = Buffer(

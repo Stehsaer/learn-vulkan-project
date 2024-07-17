@@ -782,7 +782,7 @@ void App_render_logic::draw_lighting(uint32_t idx, const Command_buffer& command
 		{Lighting_pipeline::clear_value}
 	);
 	{
-		set_viewport(false);
+		set_viewport(true);
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
@@ -1313,7 +1313,7 @@ void App_render_logic::draw_composite(uint32_t idx, const Command_buffer& comman
 		{Composite_pipeline::clear_value}
 	);
 	{
-		set_viewport(true);
+		set_viewport(false);
 
 		command_buffer.bind_descriptor_sets(
 			vk::PipelineBindPoint::eGraphics,
@@ -1351,12 +1351,13 @@ void App_render_logic::stat_panel()
 	ImGui::End();
 }
 
-void App_render_logic::control_tab()
+void App_render_logic::lighting_tab()
 {
 	auto& params = core->params;
 
 	ImGui::SeparatorText("Lighting");
 	{
+		// Directional Light
 		{
 			ImGui::ColorEdit3("Light Color", &params.sun.color.x, ImGuiColorEditFlags_DisplayHSV);
 			ImGui::SliderFloat(
@@ -1371,6 +1372,8 @@ void App_render_logic::control_tab()
 			ImGui::SliderFloat("Light Direction", &params.sun.yaw, 0, 360, "%.1fdeg");
 		}
 		ImGui::Separator();
+
+		// Brightness
 		{
 			ImGui::SliderFloat(
 				"Emissive Brightness",
@@ -1390,6 +1393,13 @@ void App_render_logic::control_tab()
 			);
 		}
 		ImGui::Separator();
+
+		ImGui::SliderFloat("CSM Blend Factor", &params.csm_blend_factor, 0, 1);
+	}
+
+	ImGui::SeparatorText("Post FX");
+	{
+		// Bloom Parameters
 		{
 			ImGui::SliderFloat(
 				"Bloom Intensity",
@@ -1420,26 +1430,14 @@ void App_render_logic::control_tab()
 		}
 
 		ImGui::Separator();
-		ImGui::SliderFloat("Adapt Speed", &params.adapt_speed, 0.01, 5, "%.2fx");
-		ImGui::SliderFloat("Exposure", &params.exposure_ev, -6, 6, "%.1fEV");
-	}
 
-	ImGui::SeparatorText("Camera");
-	{
-		ImGui::SliderFloat("FOV", &params.fov, 1, 135, "%.1fdeg");
+		// Exposure
 		{
-			ImGui::BeginDisabled(params.auto_adjust_far_plane);
-			ImGui::SliderFloat("Far", &params.far, 1, 10000, "%.2f", ImGuiSliderFlags_Logarithmic);
-			ImGui::EndDisabled();
+			ImGui::SliderFloat("Exposure Adapt Speed", &params.adapt_speed, 0.01, 5, "%.2fx");
+			ImGui::SliderFloat("Exposure Value", &params.exposure_ev, -6, 6, "%.1fEV");
 		}
-		{
-			ImGui::BeginDisabled(params.auto_adjust_near_plane);
-			ImGui::SliderFloat("Near", &params.near, 0.01, params.far, "%.2f", ImGuiSliderFlags_Logarithmic);
-			ImGui::EndDisabled();
-		}
-		ImGui::Checkbox("Auto Adjust Far Plane", &params.auto_adjust_far_plane);
-		ImGui::Checkbox("Auto Adjust Near Plane", &params.auto_adjust_near_plane);
-		ImGui::SliderFloat("CSM Blend Factor", &params.csm_blend_factor, 0, 1);
+
+		ImGui::Separator();
 
 		// Fxaa Mode
 		if (ImGui::BeginCombo("FXAA Mode", fxaa_mode_name.at(params.fxaa_mode)))
@@ -1452,26 +1450,12 @@ void App_render_logic::control_tab()
 			ImGui::EndCombo();
 		}
 	}
-
-	ImGui::SeparatorText("Debug");
-	{
-		ImGui::Checkbox("Visualize Shadow Perspective", &params.show_shadow_perspective);
-		ImGui::BeginDisabled(!params.show_shadow_perspective);
-		{
-			ImGui::InputInt("Shadow Layer", &params.shadow_perspective_layer);
-			params.shadow_perspective_layer = std::clamp<int>(params.shadow_perspective_layer, 0, 2);
-		}
-		ImGui::EndDisabled();
-	}
 }
 
 void App_render_logic::system_tab()
 {
 	ImGui::Checkbox("Stats Panel", &show_panel);
 	ImGui::Separator();
-
-	if (ImGui::Button("Load Builtin Model")) load_default_model = true;
-	if (ImGui::Button("Load Builtin HDRi")) load_default_hdri = true;
 
 	// Feature
 	if (ImGui::TreeNode("Features"))
@@ -1496,39 +1480,12 @@ void App_render_logic::system_tab()
 
 void App_render_logic::preset_tab()
 {
+	if (ImGui::Button("Load Builtin Model")) load_default_model = true;
+	if (ImGui::Button("Load Builtin HDRi")) load_default_hdri = true;
+
 	// Export Preset JSON
-	if (ImGui::TreeNode("Generate Preset"))
-	{
-		if (ImGui::Button("Generate"))
-		{
-			Scene_preset preset;
-			preset.collect(*this);
 
-			const auto json      = preset.serialize();
-			exported_preset_json = json.dump(4);
-		}
-
-		if (!exported_preset_json.empty())
-		{
-			ImGui::SameLine();
-			if (ImGui::Button("Copy To Clipboard"))
-			{
-				SDL_SetClipboardText(exported_preset_json.c_str());
-			}
-
-			ImGui::InputTextMultiline(
-				"##exported_preset_json",
-				const_cast<char*>(exported_preset_json.c_str()),
-				exported_preset_json.size(),
-				{0, 0},
-				ImGuiInputTextFlags_ReadOnly
-			);
-		}
-
-		ImGui::TreePop();
-	}
-
-	if (ImGui::TreeNode("Load Preset"))
+	ImGui::SeparatorText("Load Scene Preset");
 	{
 		ImGui::InputTextMultiline("JSON", &deserialize_buffer);
 
@@ -1562,8 +1519,35 @@ void App_render_logic::preset_tab()
 			ImGui::TextWrapped("Error: %s", deserialize_error_msg.c_str());
 			ImGui::PopStyleColor();
 		}
+	}
 
-		ImGui::TreePop();
+	ImGui::SeparatorText("Generate Scene Preset");
+	{
+		if (ImGui::Button("Generate"))
+		{
+			Scene_preset preset;
+			preset.collect(*this);
+
+			const auto json      = preset.serialize();
+			exported_preset_json = json.dump(4);
+		}
+
+		if (!exported_preset_json.empty())
+		{
+			ImGui::SameLine();
+			if (ImGui::Button("Copy To Clipboard"))
+			{
+				SDL_SetClipboardText(exported_preset_json.c_str());
+			}
+
+			ImGui::InputTextMultiline(
+				"##exported_preset_json",
+				const_cast<char*>(exported_preset_json.c_str()),
+				exported_preset_json.size(),
+				{0, 0},
+				ImGuiInputTextFlags_ReadOnly
+			);
+		}
 	}
 }
 
@@ -1582,15 +1566,10 @@ void App_render_logic::ui_logic()
 	{
 		if (ImGui::BeginTabBar("##Main Tab"))
 		{
-			if (ImGui::BeginTabItem("System"))
-			{
-				system_tab();
-				ImGui::EndTabItem();
-			}
 
-			if (ImGui::BeginTabItem("Control"))
+			if (ImGui::BeginTabItem("Lighting"))
 			{
-				control_tab();
+				lighting_tab();
 				ImGui::EndTabItem();
 			}
 
@@ -1610,6 +1589,12 @@ void App_render_logic::ui_logic()
 			if (ImGui::BeginTabItem("Preset"))
 			{
 				preset_tab();
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("System"))
+			{
+				system_tab();
 				ImGui::EndTabItem();
 			}
 
@@ -1787,9 +1772,43 @@ void App_render_logic::camera_tab()
 
 	if (selected_camera >= 0) return;
 
+	auto& params = core->params;
+
 	ImGui::SeparatorText("Free Camera Control");
 
 	// center camera view
 	if (ImGui::Button("Center Camera View"))
 		core->params.camera_controller.target_eye_center = (scene_min_bound + scene_max_bound) / 2.0f;
+
+	ImGui::Separator();
+
+	{
+		ImGui::BeginDisabled(params.auto_adjust_far_plane);
+		ImGui::SliderFloat("Far", &params.far, 1, 10000, "%.2f", ImGuiSliderFlags_Logarithmic);
+		ImGui::EndDisabled();
+	}
+	{
+		ImGui::BeginDisabled(params.auto_adjust_near_plane);
+		ImGui::SliderFloat("Near", &params.near, 0.01, params.far, "%.2f", ImGuiSliderFlags_Logarithmic);
+		ImGui::EndDisabled();
+	}
+	ImGui::Checkbox("Auto Adjust Far Plane", &params.auto_adjust_far_plane);
+	ImGui::Checkbox("Auto Adjust Near Plane", &params.auto_adjust_near_plane);
+
+	ImGui::Separator();
+
+	ImGui::SliderFloat("FOV", &params.fov, 1, 135, "%.1fdeg");  // Field of view
+
+	float rotate_sensitivity = 1 / params.camera_controller.pitch_sensitivity;
+	ImGui::SliderFloat("Rotation Sensitivity", &rotate_sensitivity, 1, 100, "1/%.1f", ImGuiSliderFlags_Logarithmic);
+	params.camera_controller.yaw_sensitivity = params.camera_controller.pitch_sensitivity = 1 / rotate_sensitivity;
+
+	ImGui::SliderFloat(
+		"Zoom Sensitivity",
+		&params.camera_controller.zoom_sensitivity,
+		0.01,
+		0.5,
+		"%.2f",
+		ImGuiSliderFlags_Logarithmic
+	);
 }

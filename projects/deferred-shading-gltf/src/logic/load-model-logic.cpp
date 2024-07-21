@@ -4,10 +4,10 @@
 void App_load_model_logic::load_thread_work()
 {
 	core->env.log_msg("Loading model from \"{}\"...", load_path);
-	core->source.model = std::make_shared<io::mesh::gltf::Model>();  // create new
+	core->source.model = std::make_shared<io::gltf::Model>();  // create new
 
 	// Loader Context
-	io::mesh::gltf::Loader_context loader_context;
+	io::gltf::Loader_context loader_context;
 
 	loader_context.allocator               = core->env.allocator;
 	loader_context.command_pool            = Command_pool(core->env.device, core->env.g_family_idx);
@@ -47,7 +47,7 @@ void App_load_model_logic::load_thread_work()
 	catch (const Exception& e)
 	{
 		load_err_msg       = e.msg;
-		load_stage         = io::mesh::gltf::Load_stage::Error;
+		load_stage         = io::gltf::Load_stage::Error;
 		core->source.model = nullptr;
 
 		core->env.log_err("Load model failed, reason: {}", e.msg);
@@ -95,7 +95,7 @@ std::shared_ptr<Application_logic_base> App_load_model_logic::work()
 		{
 			if (preset.has_value()) return std::make_shared<App_load_hdri_logic>(core, std::move(preset.value()));
 
-			if (load_stage == io::mesh::gltf::Load_stage::Finished && core->source.hdri != nullptr)
+			if (load_stage == io::gltf::Load_stage::Finished && core->source.hdri != nullptr)
 			{
 				return std::make_shared<App_render_logic>(core);
 			}
@@ -135,33 +135,33 @@ void App_load_model_logic::ui_logic()
 
 		switch (load_stage)
 		{
-		case vklib_hpp::io::mesh::gltf::Load_stage::Uninitialized:
+		case vklib::io::gltf::Load_stage::Uninitialized:
 			break;
-		case vklib_hpp::io::mesh::gltf::Load_stage::Tinygltf_loading:
+		case vklib::io::gltf::Load_stage::Tinygltf_loading:
 			display_msg      = "TinyGltf Loading Data";
 			display_progress = -1;
 			break;
-		case vklib_hpp::io::mesh::gltf::Load_stage::Load_material:
+		case vklib::io::gltf::Load_stage::Load_material:
 			display_msg = "Loading Material";
 			break;
-		case vklib_hpp::io::mesh::gltf::Load_stage::Load_mesh:
+		case vklib::io::gltf::Load_stage::Load_mesh:
 			display_msg = "Loading Mesh";
 			break;
-		case vklib_hpp::io::mesh::gltf::Load_stage::Finished:
+		case vklib::io::gltf::Load_stage::Finished:
 			break;
-		case vklib_hpp::io::mesh::gltf::Load_stage::Error:
+		case vklib::io::gltf::Load_stage::Error:
 			display_msg = "Error!";
 			break;
 		}
 
 		ImGui::Text("%s", display_msg);
 
-		if (load_stage == vklib_hpp::io::mesh::gltf::Load_stage::Error)
+		if (load_stage == vklib::io::gltf::Load_stage::Error)
 		{
 			ImGui::BulletText("%s", load_err_msg.c_str());
 			if (ImGui::Button("OK")) quit = true;
 		}
-		else if (load_stage == vklib_hpp::io::mesh::gltf::Load_stage::Finished)
+		else if (load_stage == vklib::io::gltf::Load_stage::Finished)
 		{
 			quit = true;
 		}

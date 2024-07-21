@@ -19,7 +19,7 @@ vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT me
 	return pfn_vk_destroy_debug_utils_messenger_ext(instance, messenger, pAllocator);
 }
 
-static bool load_debug_messenger_pfn(const vklib_hpp::Instance& instance)
+static bool load_debug_messenger_pfn(const vklib::Instance& instance)
 {
 	if (pfn_vk_create_debug_utils_messenger_ext != nullptr && pfn_vk_destroy_debug_utils_messenger_ext != nullptr) return true;
 

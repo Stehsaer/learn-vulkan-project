@@ -5,9 +5,9 @@
 #include <queue>
 #include <thread>
 #include <utility>
-#include <vklib>
+#include <vklib-core.hpp>
 
-using namespace vklib_hpp;
+using namespace vklib;
 
 #include "controller.hpp"
 #include "environment.hpp"

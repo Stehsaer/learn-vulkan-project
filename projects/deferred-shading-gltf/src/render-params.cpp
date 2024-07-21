@@ -12,10 +12,10 @@ void Render_source::generate_material_data(const Environment& env, const Pipelin
 
 	// Alignment calculation
 	const auto min_alignment = env.physical_device.getProperties().limits.minUniformBufferOffsetAlignment;
-	const auto element_size  = sizeof(io::mesh::gltf::Material::Mat_params) % min_alignment == 0
-								 ? sizeof(io::mesh::gltf::Material::Mat_params)
-								 : sizeof(io::mesh::gltf::Material::Mat_params) + min_alignment
-                                      - sizeof(io::mesh::gltf::Material::Mat_params) % min_alignment;
+	const auto element_size
+		= sizeof(io::gltf::Material::Mat_params) % min_alignment == 0
+			? sizeof(io::gltf::Material::Mat_params)
+			: sizeof(io::gltf::Material::Mat_params) + min_alignment - sizeof(io::gltf::Material::Mat_params) % min_alignment;
 
 	//* Create Descriptor Pool.
 	// Gbuffer set: 5 Combined + 1 Uniform;
@@ -60,7 +60,7 @@ void Render_source::generate_material_data(const Environment& env, const Pipelin
 		for (const auto i : Range(materials.size()))
 		{
 			auto* ptr                                                     = mat_params.data() + element_size * i;
-			*reinterpret_cast<io::mesh::gltf::Material::Mat_params*>(ptr) = materials[i].params;
+			*reinterpret_cast<io::gltf::Material::Mat_params*>(ptr)       = materials[i].params;
 		}
 		staging_buffer << mat_params;
 
@@ -92,7 +92,7 @@ void Render_source::generate_material_data(const Environment& env, const Pipelin
 		);
 
 		const auto descriptor_uniform_write_info
-			= vk::DescriptorBufferInfo(material_uniform_buffer, element_size * i, sizeof(io::mesh::gltf::Material::Mat_params));
+			= vk::DescriptorBufferInfo(material_uniform_buffer, element_size * i, sizeof(io::gltf::Material::Mat_params));
 
 		std::array<vk::WriteDescriptorSet, 6> normal_write_info;
 		std::array<vk::WriteDescriptorSet, 2> albedo_only_write_info;
@@ -184,7 +184,7 @@ void Render_source::generate_skin_data(const Environment& env, const Pipeline_se
 		model->skins.begin(),
 		model->skins.end(),
 		0u,
-		[](uint32_t src, const io::mesh::gltf::Skin& add) -> uint32_t
+		[](uint32_t src, const io::gltf::Skin& add) -> uint32_t
 		{
 			return src + add.joints.size();
 		}
@@ -337,11 +337,7 @@ glm::vec3 Render_params::get_light_direction() const
 	return get_sunlight_direction(sun.yaw, sun.pitch);
 }
 
-Camera_parameter generate_param_from_gltf_camera(
-	const Environment&            env,
-	const glm::mat4&              transform,
-	const io::mesh::gltf::Camera& camera
-)
+Camera_parameter generate_param_from_gltf_camera(const Environment& env, const glm::mat4& transform, const io::gltf::Camera& camera)
 {
 	const auto aspect_ratio = env.swapchain.extent.width / (float)env.swapchain.extent.height;
 

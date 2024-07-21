@@ -2,17 +2,20 @@
 #include <filesystem>
 #include <fstream>
 
+#define IO_READ_FAIL_MSG "Failed to read file"
+#define IO_READ_WRITE_MSG "Failed to write file"
+
 namespace VKLIB_HPP_NAMESPACE::io
 {
 	std::vector<uint8_t> read(const std::string& path)
 	{
 		// check file existence
-		if (!std::filesystem::exists(path)) throw File_exception(path, "File doesn't exists");
+		if (!std::filesystem::exists(path)) throw IO_exception(IO_READ_FAIL_MSG, "File doesn't exist", path);
 
 		std::ifstream file(path, std::ios::binary);
 		if (!file)
 		{
-			throw File_exception(path, "Can't open file for reading");
+			throw IO_exception(IO_READ_FAIL_MSG, "Can't open file for reading", path);
 		}
 
 		// get file size
@@ -23,7 +26,7 @@ namespace VKLIB_HPP_NAMESPACE::io
 		std::vector<uint8_t> buffer(size);
 		if (!file.read(reinterpret_cast<char*>(buffer.data()), size))
 		{
-			throw File_exception(path, "Failed to read file");
+			throw IO_exception(IO_READ_FAIL_MSG, "Failed to read file", path);
 		}
 
 		return buffer;
@@ -34,7 +37,7 @@ namespace VKLIB_HPP_NAMESPACE::io
 		const std::ifstream file(path);
 		if (!file)
 		{
-			throw File_exception(path, "Can't open file for reading");
+			throw IO_exception(IO_READ_FAIL_MSG, "Can't open file for reading", path);
 		}
 		std::stringstream buffer;
 		buffer << file.rdbuf();
@@ -46,12 +49,12 @@ namespace VKLIB_HPP_NAMESPACE::io
 		std::ofstream file(path, std::ios::binary);
 		if (!file)
 		{
-			throw File_exception(path, "Can't open file for writing");
+			throw IO_exception(IO_READ_WRITE_MSG, "Can't open file for writing", path);
 		}
 
 		if (!file.write(reinterpret_cast<const char*>(data.data()), data.size()))
 		{
-			throw File_exception(path, "Failed to write file");
+			throw IO_exception(IO_READ_WRITE_MSG, "Unknown reason", path);
 		}
 	}
 }

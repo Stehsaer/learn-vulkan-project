@@ -9,6 +9,8 @@
 //* - Child Resource:
 //		Dependent on external objects to correctly construct and deconstruct. Constructed by constructor. eg. Device
 
+#define No_discard [[nodiscard]]
+
 namespace VKLIB_HPP_NAMESPACE
 {
 	template <typename T>

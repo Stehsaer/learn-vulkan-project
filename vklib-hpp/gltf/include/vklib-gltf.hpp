@@ -14,7 +14,7 @@
 #include <set>
 #include <unordered_set>
 
-namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
+namespace VKLIB_HPP_NAMESPACE::io::gltf
 {
 	inline std::optional<uint32_t> to_optional(int val)
 	{
@@ -72,12 +72,12 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	struct Loader_context
 	{
-		Queue                 transfer_queue;
-		Command_pool          command_pool;
-		Vma_allocator         allocator;
-		Device                device;
-		Physical_device       physical_device;
-		Fence                 fence;
+		Queue           transfer_queue;
+		Command_pool    command_pool;
+		Vma_allocator   allocator;
+		Device          device;
+		Physical_device physical_device;
+		Fence           fence;
 
 		Loader_config config;
 
@@ -145,8 +145,8 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 	{
 		std::string name;
 
-		uint32_t  albedo_idx, metal_roughness_idx, normal_idx, emissive_idx, occlusion_idx;
-		bool      double_sided;
+		uint32_t albedo_idx, metal_roughness_idx, normal_idx, emissive_idx, occlusion_idx;
+		bool     double_sided;
 
 		Alpha_mode alpha_mode = Alpha_mode::Opaque;
 
@@ -179,7 +179,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 		std::string name;
 
 		std::optional<uint32_t> mesh_idx;
-		std::vector<uint32_t> children;
+		std::vector<uint32_t>   children;
 
 		Node_transformation transformation;
 
@@ -349,9 +349,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 	struct Animation_channel
 	{
-		std::optional<uint32_t>         node;
-		Animation_target target  = Animation_target::Translation;
-		std::optional<uint32_t>         sampler;
+		std::optional<uint32_t> node;
+		Animation_target        target = Animation_target::Translation;
+		std::optional<uint32_t> sampler;
 
 		bool is_valid() const { return node && sampler; }
 
@@ -452,49 +452,4 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
 
 		Primitive parse_primitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, Mesh_data_context& mesh_context);
 	};
-}
-
-// Implementations
-namespace VKLIB_HPP_NAMESPACE::io::mesh::gltf
-{
-	template <Vec3_or_quat T>
-	T Animation_sampler<T>::operator[](float time) const
-	{
-		const auto upper = std::upper_bound(
-			keyframes.begin(),
-			keyframes.end(),
-			time,
-			[](float time, auto val)
-			{
-				return time < val.time;
-			}
-		);
-
-		// time larger than upper bound
-		if (upper == keyframes.end()) return keyframes.rbegin()->linear;
-
-		// time smaller than lower bound
-		if (upper == keyframes.begin()) return keyframes.begin()->linear;
-
-		auto lower = upper;
-		lower--;
-
-		switch (mode)
-		{
-		case Interpolation_mode::Step:
-			return lower->linear;
-
-		case Interpolation_mode::Linear:
-			return linear_interpolate(lower, upper, time);
-
-		case Interpolation_mode::Cubic_spline:
-			return cubic_interpolate(lower, upper, time);
-
-		default:
-			throw Animation_runtime_error(
-				"Unknown interpolation mode",
-				"This is very likely a case of data corruption or APPLICATION bug"
-			);
-		}
-	}
 }

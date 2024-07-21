@@ -9,9 +9,9 @@ class Node_traverser
 
 	struct Traverse_params
 	{
-		using Node_lut = std::unordered_map<uint32_t, io::mesh::gltf::Node_transformation>;
+		using Node_lut = std::unordered_map<uint32_t, io::gltf::Node_transformation>;
 
-		const io::mesh::gltf::Model* model          = nullptr;
+		const io::gltf::Model*       model          = nullptr;
 		const Node_lut*              node_trans_lut = nullptr;
 
 		glm::mat4 base_transformation = glm::mat4(1.0);
@@ -39,7 +39,7 @@ class Node_traverser
 struct Drawcall
 {
 	uint32_t                  node_idx;
-	io::mesh::gltf::Primitive primitive;
+	io::gltf::Primitive       primitive;
 	glm::mat4                 transformation;
 
 	float near, far;
@@ -87,7 +87,7 @@ struct Drawlist
 
 	size_t size() const { return opaque.size() + mask.size() + blend.size(); }
 
-	void emplace(const Drawcall& drawcall, io::mesh::gltf::Alpha_mode mode);
+	void emplace(const Drawcall& drawcall, io::gltf::Alpha_mode mode);
 
 	void sort()
 	{
@@ -117,7 +117,7 @@ class Drawcall_generator
 
 	struct Gen_params
 	{
-		const io::mesh::gltf::Model* model          = nullptr;
+		const io::gltf::Model*       model          = nullptr;
 		const Node_traverser*        node_traverser = nullptr;
 
 		algorithm::geometry::frustum::Frustum frustum;

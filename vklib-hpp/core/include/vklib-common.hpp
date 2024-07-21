@@ -27,4 +27,4 @@
 #include <variant>
 #include <vector>
 
-#define VKLIB_HPP_NAMESPACE vklib_hpp
+#define VKLIB_HPP_NAMESPACE vklib

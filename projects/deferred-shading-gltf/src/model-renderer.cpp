@@ -35,17 +35,17 @@ void Node_traverser::traverse(const Traverse_params& params, uint32_t node_idx, 
 	for (const auto idx : node.children) traverse(params, idx, node_trans);
 }
 
-void Drawlist::emplace(const Drawcall& drawcall, io::mesh::gltf::Alpha_mode mode)
+void Drawlist::emplace(const Drawcall& drawcall, io::gltf::Alpha_mode mode)
 {
 	switch (mode)
 	{
-	case io::mesh::gltf::Alpha_mode::Opaque:
+	case io::gltf::Alpha_mode::Opaque:
 		opaque.emplace_back(drawcall);
 		break;
-	case io::mesh::gltf::Alpha_mode::Mask:
+	case io::gltf::Alpha_mode::Mask:
 		mask.emplace_back(drawcall);
 		break;
-	case io::mesh::gltf::Alpha_mode::Blend:
+	case io::gltf::Alpha_mode::Blend:
 		blend.emplace_back(drawcall);
 		break;
 	}

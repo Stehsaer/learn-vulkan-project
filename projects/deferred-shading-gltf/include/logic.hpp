@@ -149,7 +149,7 @@ class App_render_logic : public Application_logic_base
 
 	bool show_panel = true;
 
-	std::unordered_map<uint32_t, vklib_hpp::io::mesh::gltf::Node_transformation> animation_buffer;
+	std::unordered_map<uint32_t, vklib::io::gltf::Node_transformation> animation_buffer;
 
 	int    selected_animation = -1;
 	bool   animation_playing = false, animation_cycle = true;
@@ -207,7 +207,7 @@ class App_load_model_logic : public Application_logic_base
 	std::string  load_path;
 	std::jthread load_thread;
 
-	io::mesh::gltf::Load_stage load_stage   = io::mesh::gltf::Load_stage::Uninitialized;
+	io::gltf::Load_stage       load_stage   = io::gltf::Load_stage::Uninitialized;
 	float                      sub_progress = 0.0;
 
 	std::string                             load_err_msg;

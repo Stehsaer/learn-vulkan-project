@@ -1,5 +1,6 @@
 #include "binary-resource.hpp"
 #include "logic.hpp"
+#include <vklib-stbi.hpp>
 
 std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 {
@@ -44,30 +45,25 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 		core->env.log_msg("Loading HDRi from \"{}\"...", load_path);
 
 		core->source.hdri = std::make_shared<Hdri_resource>();
-		io::images::Stbi_image_utility hdri_image;
 
-		// load image
-		{
-			auto hdri_command_buffer = core->env.command_buffer[0];
+		auto hdri_command_buffer = core->env.command_buffer[0];
 
-			hdri_command_buffer.begin();
+		hdri_command_buffer.begin(true);
 
-			const auto staging_buffer
-				= load_path == LOAD_DEFUALT_HDRI_TOKEN
-					? hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, binary_resource::builtin_hdr_span)
-					: hdri_image.load_hdri(core->env.allocator, hdri_command_buffer, load_path);
+		const auto raw_image = load_path == LOAD_DEFUALT_HDRI_TOKEN ? io::stbi::load_hdri(binary_resource::builtin_hdr_span)
+																	: io::stbi::load_hdri(load_path);
+		const auto vk_image  = raw_image.to_vulkan(core->env.allocator, hdri_command_buffer, false);
 
-			hdri_command_buffer.end();
+		hdri_command_buffer.end();
 
-			const auto submit_command_buffers = Command_buffer::to_array({hdri_command_buffer});
-			core->env.t_queue.submit(vk::SubmitInfo().setCommandBuffers(submit_command_buffers));
+		const auto submit_command_buffers = Command_buffer::to_array({hdri_command_buffer});
+		core->env.t_queue.submit(vk::SubmitInfo().setCommandBuffers(submit_command_buffers));
 
-			core->env.device->waitIdle();
-		}
+		core->env.device->waitIdle();
 
 		const Image_view hdri_view(
 			core->env.device,
-			hdri_image.image,
+			vk_image.image,
 			vk::Format::eR16G16B16A16Sfloat,
 			vk::ImageViewType::e2D,
 			{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}

@@ -3,7 +3,7 @@ project("Deferred Shading Vulkan")
 add_executable(deferred_shading_gltf)
 file(GLOB_RECURSE deferred_shading_cpp_src src/*.cpp)
 target_sources(deferred_shading_gltf PRIVATE ${deferred_shading_cpp_src})
-target_link_libraries(deferred_shading_gltf PRIVATE vklib_hpp vklib_hpp_sdl2)
+target_link_libraries(deferred_shading_gltf PRIVATE vklib_core vklib_sdl2 vklib_stbi vklib_gltf)
 target_include_directories(deferred_shading_gltf PRIVATE ./include)
 
 find_package(imgui CONFIG REQUIRED)

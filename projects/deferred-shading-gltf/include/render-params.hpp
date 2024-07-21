@@ -13,7 +13,7 @@ inline const std::map<Fxaa_mode, const char*> fxaa_mode_name{
 
 struct Render_source
 {
-	std::shared_ptr<io::mesh::gltf::Model> model;
+	std::shared_ptr<io::gltf::Model>       model;
 	std::shared_ptr<Hdri_resource>         hdri;
 
 	std::string model_path, hdri_path;
@@ -77,11 +77,7 @@ struct Camera_parameter
 	}
 };
 
-Camera_parameter generate_param_from_gltf_camera(
-	const Environment&            env,
-	const glm::mat4&              transform,
-	const io::mesh::gltf::Camera& camera
-);
+Camera_parameter generate_param_from_gltf_camera(const Environment& env, const glm::mat4& transform, const io::gltf::Camera& camera);
 
 struct Shadow_parameter : public Camera_parameter
 {

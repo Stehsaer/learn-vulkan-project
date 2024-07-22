@@ -606,7 +606,7 @@ void Composite_rt::create(
 										 .setAnisotropyEnable(false)
 										 .setCompareEnable(false)
 										 .setMinLod(0.0)
-										 .setMaxLod(1.0)
+										 .setMaxLod(0.0)
 										 .setMinFilter(vk::Filter::eNearest)
 										 .setMagFilter(vk::Filter::eNearest)
 										 .setUnnormalizedCoordinates(true);

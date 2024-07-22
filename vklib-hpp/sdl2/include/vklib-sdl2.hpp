@@ -1,8 +1,8 @@
 #pragma once
 
-#include "SDL2/SDL.h"
-#include "SDL2/SDL_vulkan.h"
 #include "vklib-env.hpp"
+#include <SDL.h>
+#include <SDL_vulkan.h>
 
 namespace VKLIB_HPP_NAMESPACE
 {

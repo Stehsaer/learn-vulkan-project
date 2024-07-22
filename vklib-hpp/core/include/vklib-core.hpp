@@ -7,7 +7,6 @@
 #include <vklib-common.hpp>
 #include <vklib-debug.hpp>
 #include <vklib-env.hpp>
-#include <vklib-gltf.hpp>
 #include <vklib-io.hpp>
 #include <vklib-pipeline.hpp>
 #include <vklib-storage.hpp>

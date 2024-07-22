@@ -3,11 +3,6 @@
 
 namespace VKLIB_HPP_NAMESPACE::io::gltf
 {
-	template <>
-	class Animation_sampler<glm::vec3>;
-
-	template <>
-	class Animation_sampler<glm::quat>;
 
 	template <Vec3_or_quat T>
 	T Animation_sampler<T>::operator[](float time) const
@@ -52,9 +47,9 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 	template <>
 	glm::vec3 Animation_sampler<glm::vec3>::linear_interpolate(
-		const std::set<Keyframe>::const_iterator& first,
-		const std::set<Keyframe>::const_iterator& second,
-		float                                     time
+		const std::set<Animation_sampler<glm::vec3>::Keyframe>::const_iterator& first,
+		const std::set<Animation_sampler<glm::vec3>::Keyframe>::const_iterator& second,
+		float                                                                   time
 	) const
 	{
 		const auto& frame1 = *first;
@@ -65,9 +60,9 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 	template <>
 	glm::quat Animation_sampler<glm::quat>::linear_interpolate(
-		const std::set<Keyframe>::const_iterator& first,
-		const std::set<Keyframe>::const_iterator& second,
-		float                                     time
+		const std::set<Animation_sampler<glm::quat>::Keyframe>::const_iterator& first,
+		const std::set<Animation_sampler<glm::quat>::Keyframe>::const_iterator& second,
+		float                                                                   time
 	) const
 	{
 		const auto& frame1 = *first;
@@ -78,9 +73,9 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 	template <>
 	glm::vec3 Animation_sampler<glm::vec3>::cubic_interpolate(
-		const std::set<Keyframe>::const_iterator& first,
-		const std::set<Keyframe>::const_iterator& second,
-		float                                     time
+		const std::set<Animation_sampler<glm::vec3>::Keyframe>::const_iterator& first,
+		const std::set<Animation_sampler<glm::vec3>::Keyframe>::const_iterator& second,
+		float                                                                   time
 	) const
 	{
 		const auto& frame1 = *first;
@@ -97,9 +92,9 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 	template <>
 	glm::quat Animation_sampler<glm::quat>::cubic_interpolate(
-		const std::set<Keyframe>::const_iterator& first,
-		const std::set<Keyframe>::const_iterator& second,
-		float                                     time
+		const std::set<Animation_sampler<glm::quat>::Keyframe>::const_iterator& first,
+		const std::set<Animation_sampler<glm::quat>::Keyframe>::const_iterator& second,
+		float                                                                   time
 	) const
 	{
 		const auto& frame1 = *first;

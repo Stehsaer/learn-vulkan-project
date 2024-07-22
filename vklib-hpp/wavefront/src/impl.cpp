@@ -1,8 +1,7 @@
-#include "vklib-algorithm.hpp"
-#include "vklib-io.hpp"
-#include <tiny_obj_loader.h>
+#include "tiny_obj_loader.h"
+#include "vklib-wavefront-obj.hpp"
 
-namespace VKLIB_HPP_NAMESPACE::io::mesh::wavefront
+namespace VKLIB_HPP_NAMESPACE::io::wavefront
 {
 	Mesh_data load_wavefront_obj_mesh(const std::string& file_data)
 	{
@@ -16,7 +15,7 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::wavefront
 			auto parse_success = reader.ParseFromString(file_data, {}, reader_config);
 			if (!parse_success)
 			{
-				throw Mesh_exception(reader.Error());
+				throw Exception("Failed to parse wavefront obj file", reader.Error());
 			}
 		}
 
@@ -44,10 +43,9 @@ namespace VKLIB_HPP_NAMESPACE::io::mesh::wavefront
 					const size_t           current_idx      = face_vert_idx + local_vert_idx;
 					const tinyobj::index_t current_data_idx = mesh.indices[current_idx];
 
-					positions[local_vert_idx]
-						= *((const glm::vec3*)&attrib.vertices[current_data_idx.vertex_index * 3]);
-					normals[local_vert_idx] = *((const glm::vec3*)&attrib.normals[current_data_idx.normal_index * 3]);
-					uvs[local_vert_idx] = *((const glm::vec2*)&attrib.texcoords[current_data_idx.texcoord_index * 2]);
+					positions[local_vert_idx] = *((const glm::vec3*)&attrib.vertices[current_data_idx.vertex_index * 3]);
+					normals[local_vert_idx]   = *((const glm::vec3*)&attrib.normals[current_data_idx.normal_index * 3]);
+					uvs[local_vert_idx]       = *((const glm::vec2*)&attrib.texcoords[current_data_idx.texcoord_index * 2]);
 				}
 
 				const glm::vec3 tangent

@@ -5,8 +5,8 @@
 This repository contains code I write while learning Vulkan.
 
 - Written in C++20.
-- Works with GCC, MSVC and Clang.
-- Structured using CMake with vcpkg as package manager.
+- ~~Structured using CMake with vcpkg as package manager~~.
+- (After 2024-7-22) Migrated to xmake and xrepo.
 - Needs to install Vulkan SDK from LunarG as prerequisite.
 
 Trying my best to make my codebase clean and neat! :smile:
@@ -42,7 +42,6 @@ Trying my best to make my codebase clean and neat! :smile:
 
     **Planned Features**:
 
-    - HDR Support (PQ Curve)
     - KTX Loading & Texture Compression
 
 - `./decrepated`: Decrepated projects, created using C API at the very early stage of learning Vulkan.

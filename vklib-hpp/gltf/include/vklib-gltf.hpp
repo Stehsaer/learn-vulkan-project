@@ -162,8 +162,6 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		} params;
 	};
 
-	using vertex = io::mesh::Mesh_vertex;
-
 	struct Node_transformation
 	{
 		glm::quat rotation{1.0, 0.0, 0.0, 0.0};
@@ -322,15 +320,15 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 	  private:
 
 		T linear_interpolate(
-			const std::set<Keyframe>::const_iterator& first,
-			const std::set<Keyframe>::const_iterator& second,
-			float                                     time
+			const typename std::set<Keyframe>::const_iterator& first,
+			const typename std::set<Keyframe>::const_iterator& second,
+			float                                              time
 		) const;
 
 		T cubic_interpolate(
-			const std::set<Keyframe>::const_iterator& first,
-			const std::set<Keyframe>::const_iterator& second,
-			float                                     time
+			const typename std::set<Keyframe>::const_iterator& first,
+			const typename std::set<Keyframe>::const_iterator& second,
+			float                                              time
 		) const;
 	};
 

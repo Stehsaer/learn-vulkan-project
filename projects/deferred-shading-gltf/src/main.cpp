@@ -31,6 +31,8 @@ const char* cut_filename(const char* filename)
 	}
 }
 
+#undef main
+
 int main(int argc [[maybe_unused]], char** argv [[maybe_unused]])
 {
 	std::signal(SIGSEGV, sig_handler_sigsev);

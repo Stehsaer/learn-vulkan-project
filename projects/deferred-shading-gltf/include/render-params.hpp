@@ -4,6 +4,8 @@
 #include "hdri.hpp"
 #include "pipeline.hpp"
 
+#include <vklib-gltf.hpp>
+
 inline const std::map<Fxaa_mode, const char*> fxaa_mode_name{
 	{Fxaa_mode::No_fxaa,         "No FXAA"          },
 	{Fxaa_mode::Fxaa_1,          "FXAA 1.0"         },

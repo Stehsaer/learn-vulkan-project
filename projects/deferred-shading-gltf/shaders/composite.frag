@@ -193,7 +193,7 @@ void main()
 
 	vec3 bloom = texture(bloom_in, uv).rgb;
 
-	vec3 luminance = texture(luminance_in, fragcoord).rgb * params.exposure;
+	vec3 luminance = textureLod(luminance_in, fragcoord, 0.0).rgb * params.exposure;
 	
 	luminance += bloom * params.bloom_intensity;
 

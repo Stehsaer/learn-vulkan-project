@@ -90,3 +90,5 @@ namespace binary_resource
 	// SOURCE: assets/builtin-hdr.hdr
 	DEFINE_RESOURCE(builtin_hdr)
 }
+
+#undef DEFINE_RESOURCE

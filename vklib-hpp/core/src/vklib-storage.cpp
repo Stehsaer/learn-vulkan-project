@@ -4,6 +4,21 @@ namespace VKLIB_HPP_NAMESPACE
 {
 #pragma region "Image"
 
+	Image::Image(const Vma_allocator& allocator, VmaMemoryUsage mem_usage, const vk::ImageCreateInfo& create_info)
+	{
+		const VkImageCreateInfo c_create_info = create_info;
+
+		VkImage       handle;
+		VmaAllocation allocation_handle;
+
+		const VmaAllocationCreateInfo alloc_info{.usage = mem_usage};
+
+		auto result = vmaCreateImage(allocator, &c_create_info, &alloc_info, &handle, &allocation_handle, nullptr);
+		vk::resultCheck(vk::Result(result), "Can't create image");
+
+		*this = Image({vk::Image(handle), allocation_handle}, allocator);
+	}
+
 	Image::Image(
 		const Vma_allocator&    allocator,
 		vk::ImageType           type,
@@ -33,17 +48,7 @@ namespace VKLIB_HPP_NAMESPACE
 			.setUsage(image_usage)
 			.setFlags(create_flags);
 
-		const VkImageCreateInfo c_create_info = create_info;
-
-		VkImage       handle;
-		VmaAllocation allocation_handle;
-
-		const VmaAllocationCreateInfo alloc_info{.usage = mem_usage};
-
-		auto result = vmaCreateImage(allocator, &c_create_info, &alloc_info, &handle, &allocation_handle, nullptr);
-		vk::resultCheck(vk::Result(result), "Can't create image");
-
-		*this = Image({vk::Image(handle), allocation_handle}, allocator);
+		*this = {allocator, mem_usage, create_info};
 	}
 
 	void Image::clean()
@@ -55,6 +60,12 @@ namespace VKLIB_HPP_NAMESPACE
 
 #pragma region "Image View"
 
+	Image_view::Image_view(const Device& device, const vk::ImageViewCreateInfo& create_info)
+	{
+		const auto handle = device->createImageView(create_info);
+		*this             = Image_view(handle, device);
+	}
+
 	Image_view::Image_view(
 		const Device&                    device,
 		vk::Image                        image,
@@ -64,10 +75,9 @@ namespace VKLIB_HPP_NAMESPACE
 		const vk::ComponentMapping&      components
 	)
 	{
-		auto create_info = vk::ImageViewCreateInfo({}, image, view_type, format, components, subresource_range);
+		const auto create_info = vk::ImageViewCreateInfo({}, image, view_type, format, components, subresource_range);
 
-		auto handle = device->createImageView(create_info);
-		*this       = Image_view(handle, device);
+		*this = {device, create_info};
 	}
 
 	void Image_view::clean()
@@ -95,6 +105,25 @@ namespace VKLIB_HPP_NAMESPACE
 #pragma region "Buffer"
 
 	Buffer::Buffer(
+		const Vma_allocator&        allocator,
+		const vk::BufferCreateInfo& create_info,
+		VmaMemoryUsage              mem_usage,
+		VmaAllocationCreateFlags    mem_flags
+	)
+	{
+		const VkBufferCreateInfo      c_create_info = create_info;
+		const VmaAllocationCreateInfo alloc_info{.flags = mem_flags, .usage = mem_usage};
+
+		VkBuffer      handle;
+		VmaAllocation alloc_handle;
+
+		const auto result = vmaCreateBuffer(allocator, &c_create_info, &alloc_info, &handle, &alloc_handle, nullptr);
+		vk::resultCheck(vk::Result(result), "Can't create buffer");
+
+		*this = Buffer({handle, alloc_handle}, allocator);
+	}
+
+	Buffer::Buffer(
 		const Vma_allocator&     allocator,
 		size_t                   size,
 		vk::BufferUsageFlags     usage,
@@ -105,16 +134,8 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 		vk::BufferCreateInfo create_info;
 		create_info.setSize(size).setSharingMode(sharing_mode).setUsage(usage);
-		const VkBufferCreateInfo c_create_info = create_info;
 
-		VkBuffer      handle;
-		VmaAllocation alloc_handle;
-
-		const VmaAllocationCreateInfo alloc_info{.flags = mem_flags, .usage = mem_usage};
-		auto result = vmaCreateBuffer(allocator, &c_create_info, &alloc_info, &handle, &alloc_handle, nullptr);
-		vk::resultCheck(vk::Result(result), "Can't create buffer");
-
-		*this = Buffer({handle, alloc_handle}, allocator);
+		*this = {allocator, create_info, mem_usage, mem_flags};
 	}
 
 	void Buffer::clean()

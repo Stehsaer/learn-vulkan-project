@@ -47,11 +47,11 @@ namespace VKLIB_HPP_NAMESPACE
 	}
 
 	void Command_buffer::begin_render_pass(
-		const Render_pass&                render_pass,
-		const Framebuffer&                framebuffer,
-		const vk::Rect2D&                 render_area,
-		Const_array_proxy<vk::ClearValue> clear_values,
-		vk::SubpassContents               contents
+		const Render_pass&          render_pass,
+		const Framebuffer&          framebuffer,
+		const vk::Rect2D&           render_area,
+		Array_proxy<vk::ClearValue> clear_values,
+		vk::SubpassContents         contents
 	) const
 	{
 		data->child.beginRenderPass(

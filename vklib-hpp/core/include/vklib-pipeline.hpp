@@ -12,7 +12,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
-		Descriptor_pool(const Device& device, Const_array_proxy<vk::DescriptorPoolSize> pool_sizes, uint32_t max_sets);
+		Descriptor_pool(const Device& device, Array_proxy<vk::DescriptorPoolSize> pool_sizes, uint32_t max_sets);
 
 		~Descriptor_pool() override { clean(); }
 	};
@@ -25,7 +25,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
-		Descriptor_set_layout(const Device& device, Const_array_proxy<vk::DescriptorSetLayoutBinding> bindings);
+		Descriptor_set_layout(const Device& device, Array_proxy<vk::DescriptorSetLayoutBinding> bindings);
 
 		~Descriptor_set_layout() override { clean(); }
 	};
@@ -39,9 +39,9 @@ namespace VKLIB_HPP_NAMESPACE
 	  public:
 
 		Pipeline_layout(
-			const Device&                              device,
-			Const_array_proxy<vk::DescriptorSetLayout> descriptor_set_layouts,
-			Const_array_proxy<vk::PushConstantRange>   push_constant_ranges
+			const Device&                        device,
+			Array_proxy<vk::DescriptorSetLayout> descriptor_set_layouts,
+			Array_proxy<vk::PushConstantRange>   push_constant_ranges
 		);
 
 		~Pipeline_layout() override { clean(); }
@@ -56,9 +56,9 @@ namespace VKLIB_HPP_NAMESPACE
 	  public:
 
 		static std::vector<Descriptor_set> create_multiple(
-			const Device&                              device,
-			const Descriptor_pool&                     descriptor_pool,
-			Const_array_proxy<vk::DescriptorSetLayout> layouts
+			const Device&                        device,
+			const Descriptor_pool&               descriptor_pool,
+			Array_proxy<vk::DescriptorSetLayout> layouts
 		);
 
 		~Descriptor_set() override { clean(); }
@@ -72,7 +72,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
-		Shader_module(const Device& device, Const_array_proxy<uint8_t> code);
+		Shader_module(const Device& device, Array_proxy<uint8_t> code);
 
 		~Shader_module() override { clean(); }
 
@@ -89,10 +89,10 @@ namespace VKLIB_HPP_NAMESPACE
 	  public:
 
 		Render_pass(
-			const Device&                                device,
-			Const_array_proxy<vk::AttachmentDescription> attachment_descriptions,
-			Const_array_proxy<vk::SubpassDescription>    subpass_descriptions,
-			Const_array_proxy<vk::SubpassDependency>     subpass_dependencies
+			const Device&                          device,
+			Array_proxy<vk::AttachmentDescription> attachment_descriptions,
+			Array_proxy<vk::SubpassDescription>    subpass_descriptions,
+			Array_proxy<vk::SubpassDependency>     subpass_dependencies
 		);
 
 		~Render_pass() override { clean(); }
@@ -138,12 +138,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
-		Framebuffer(
-			const Device&                    device,
-			const Render_pass&               render_pass,
-			Const_array_proxy<vk::ImageView> image_views,
-			vk::Extent3D                     extent
-		);
+		Framebuffer(const Device& device, const Render_pass& render_pass, Array_proxy<vk::ImageView> image_views, vk::Extent3D extent);
 
 		~Framebuffer() override { clean(); }
 	};

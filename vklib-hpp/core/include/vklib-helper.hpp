@@ -119,4 +119,65 @@ namespace VKLIB_HPP_NAMESPACE
 		Iterator begin() const noexcept { return {container, container.begin()}; }
 		Iterator end() const noexcept { return {container, container.end()}; }
 	};
+
+	template <typename T>
+	class Array_proxy
+	{
+	  private:
+
+		struct Span
+		{
+			const T* ptr;
+			size_t   size;
+		};
+
+		static constexpr size_t span_idx = 0, initializer_idx = 1;
+
+		std::variant<Span, std::initializer_list<const T>> _data;
+
+	  public:
+
+		Array_proxy() :
+			_data(Span(nullptr, 0))
+		{
+		}
+
+		template <std::ranges::contiguous_range Ty>
+			requires(std::is_same_v<T, std::remove_cvref_t<decltype(*(Ty().data()))>>)
+		Array_proxy(const Ty& vec) :
+			_data(Span(vec.data(), vec.size()))
+		{
+		}
+
+		Array_proxy(std::initializer_list<const T>&& init_list) :
+			_data(init_list)
+		{
+		}
+
+		const T* data() const
+		{
+			switch (_data.index())
+			{
+			case span_idx:
+				return std::get<span_idx>(_data).ptr;
+			case initializer_idx:
+				return std::data(std::get<initializer_idx>(_data));
+			}
+
+			return nullptr;  // backup, ideally can't reach
+		}
+
+		size_t size() const
+		{
+			switch (_data.index())
+			{
+			case span_idx:
+				return std::get<span_idx>(_data).size;
+			case initializer_idx:
+				return std::size(std::get<initializer_idx>(_data));
+			}
+
+			return 0;  // backup, ideally can't reach
+		}
+	};
 }

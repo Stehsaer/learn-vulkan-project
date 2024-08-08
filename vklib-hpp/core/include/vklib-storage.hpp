@@ -13,6 +13,8 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
+		Image(const Vma_allocator& allocator, VmaMemoryUsage mem_usage, const vk::ImageCreateInfo& create_info);
+
 		Image(
 			const Vma_allocator&    allocator,
 			vk::ImageType           type,
@@ -40,17 +42,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
-		Image_view(
-			const Device&                    device,
-			const Image&                     image,
-			vk::Format                       format,
-			vk::ImageViewType                view_type,
-			const vk::ImageSubresourceRange& subresource_range,
-			const vk::ComponentMapping&      components = {}
-		)
-		{
-			*this = Image_view(device, (vk::Image)image, format, view_type, subresource_range, components);
-		}
+		Image_view(const Device& device, const vk::ImageViewCreateInfo& create_info);
 
 		Image_view(
 			const Device&                    device,
@@ -84,6 +76,13 @@ namespace VKLIB_HPP_NAMESPACE
 		void clean() override;
 
 	  public:
+
+		Buffer(
+			const Vma_allocator&        allocator,
+			const vk::BufferCreateInfo& create_info,
+			VmaMemoryUsage              mem_usage,
+			VmaAllocationCreateFlags    mem_flags = {}
+		);
 
 		Buffer(
 			const Vma_allocator&     allocator,

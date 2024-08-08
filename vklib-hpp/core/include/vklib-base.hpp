@@ -52,7 +52,7 @@ namespace VKLIB_HPP_NAMESPACE
 	{
 	  protected:
 
-		std::shared_ptr<T> data;
+		std::shared_ptr<T> data = nullptr;
 
 		Mono_resource(const T& res) :
 			data(std::make_shared<T>(res))
@@ -97,6 +97,7 @@ namespace VKLIB_HPP_NAMESPACE
 			return *this;
 		}
 
+		// Destroy the object explicitly
 		void explicit_destroy()
 		{
 			if (!is_unique()) return;
@@ -104,13 +105,37 @@ namespace VKLIB_HPP_NAMESPACE
 			data = nullptr;
 		}
 
+		// Checks if the object is valid (internal data isn't `nullptr`)
 		bool is_valid() const { return data.get() != nullptr; }
 
 		T*       operator->() { return data.get(); }
 		const T* operator->() const { return data.get(); }
 
-		operator T() const { return *data; }
+		operator T() const
+		{
+			if (data) [[likely]]
+				return *data;
+			else
+				return T();
+		}
 
+		operator std::span<const T>() const
+		{
+			if (data) [[likely]]
+				return std::span<T>(data.get(), 1);
+			else
+				return std::span<T>();
+		}
+
+		operator vk::ArrayProxy<const T>() const
+		{
+			if (data) [[likely]]
+				return vk::ArrayProxy<T>(1, data.get());
+			else
+				return vk::ArrayProxy<T>();
+		}
+
+		// Explicitly convert to `Dst_T`
 		template <typename Dst_T>
 			requires std::convertible_to<T, Dst_T>
 		Dst_T to() const
@@ -118,6 +143,7 @@ namespace VKLIB_HPP_NAMESPACE
 			return (Dst_T)(T)(*data);
 		}
 
+		// Convert an array of vklib objects to vulkan objects
 		template <size_t Size>
 		inline static std::array<T, Size> to_array(T (&&arr)[Size])
 		{
@@ -134,6 +160,7 @@ namespace VKLIB_HPP_NAMESPACE
 			return ret;
 		}
 
+		// Convert a vector of vklib objects to vulkan objects
 		template <typename Derived>
 			requires(std::is_convertible_v<Derived, T>)
 		inline static std::vector<T> to_vector(const std::vector<Derived>& vec)
@@ -143,6 +170,7 @@ namespace VKLIB_HPP_NAMESPACE
 			return ret;
 		}
 
+		// Returns the underlying raw object
 		T raw() const { return *this; }
 	};
 
@@ -157,7 +185,7 @@ namespace VKLIB_HPP_NAMESPACE
 			Parent_T parent;
 		};
 
-		std::shared_ptr<Container> data;
+		std::shared_ptr<Container> data = nullptr;
 
 		Child_resource(const T& child, const Parent_T& parent) :
 			data(std::make_shared<Container>(child, parent))
@@ -165,10 +193,10 @@ namespace VKLIB_HPP_NAMESPACE
 		}
 
 		bool is_unique() const { return data.get() != nullptr && data.use_count() == 1; }
+		virtual void clean() = 0;
 
 	  public:
 
-		virtual void clean()      = 0;
 		virtual ~Child_resource() = default;
 
 		Child_resource(const Child_resource&) = default;
@@ -195,6 +223,7 @@ namespace VKLIB_HPP_NAMESPACE
 			return *this;
 		}
 
+		// Destroy the object explicitly
 		void explicit_destroy()
 		{
 			if (!is_unique()) return;
@@ -205,6 +234,7 @@ namespace VKLIB_HPP_NAMESPACE
 		T*       operator->() { return &data->child; }
 		const T* operator->() const { return &data->child; }
 
+		// Checks if the object is valid (internal data isn't `nullptr`)
 		bool is_valid() const { return data.get() != nullptr; }
 
 		Parent_T&       parent() { return data->parent; }
@@ -234,6 +264,7 @@ namespace VKLIB_HPP_NAMESPACE
 				return vk::ArrayProxy<T>();
 		}
 
+		// Explicitly convert to `Dst_T`
 		template <typename Dst_T = T>
 			requires std::convertible_to<T, Dst_T>
 		Dst_T to() const
@@ -241,6 +272,7 @@ namespace VKLIB_HPP_NAMESPACE
 			return (Dst_T)(T)(data->child);
 		}
 
+		// Convert an array of vklib objects to vulkan objects
 		template <size_t Size>
 		inline static std::array<T, Size> to_array(T (&&arr)[Size])
 		{
@@ -257,6 +289,7 @@ namespace VKLIB_HPP_NAMESPACE
 			return ret;
 		}
 
+		// Convert a vector of vklib objects to vulkan objects
 		template <typename Derived>
 			requires(std::is_convertible_v<Derived, T>)
 		inline static std::vector<T> to_vector(const std::vector<Derived>& vec)
@@ -267,66 +300,5 @@ namespace VKLIB_HPP_NAMESPACE
 		}
 
 		T raw() const { return *this; }
-	};
-
-	template <typename T>
-	class Const_array_proxy
-	{
-	  private:
-
-		struct Span
-		{
-			const T* ptr;
-			size_t   size;
-		};
-
-		static constexpr size_t span_idx = 0, initializer_idx = 1;
-
-		std::variant<Span, std::initializer_list<const T>> _data;
-
-	  public:
-
-		Const_array_proxy() :
-			_data(Span(nullptr, 0))
-		{
-		}
-
-		template <std::ranges::contiguous_range Ty>
-			requires(std::is_same_v<T, std::remove_cvref_t<decltype(*(Ty().data()))>>)
-		Const_array_proxy(const Ty& vec) :
-			_data(Span(vec.data(), vec.size()))
-		{
-		}
-
-		Const_array_proxy(std::initializer_list<const T>&& init_list) :
-			_data(init_list)
-		{
-		}
-
-		const T* data() const
-		{
-			switch (_data.index())
-			{
-			case span_idx:
-				return std::get<span_idx>(_data).ptr;
-			case initializer_idx:
-				return std::data(std::get<initializer_idx>(_data));
-			}
-
-			return nullptr;  // backup, ideally can't reach
-		}
-
-		size_t size() const
-		{
-			switch (_data.index())
-			{
-			case span_idx:
-				return std::get<span_idx>(_data).size;
-			case initializer_idx:
-				return std::size(std::get<initializer_idx>(_data));
-			}
-
-			return 0;  // backup, ideally can't reach
-		}
 	};
 }

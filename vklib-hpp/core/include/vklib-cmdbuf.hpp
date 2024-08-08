@@ -33,11 +33,11 @@ namespace VKLIB_HPP_NAMESPACE
 		void       reset() const { data->child.reset(); }
 
 		void begin_render_pass(
-			const Render_pass&                render_pass,
-			const Framebuffer&                framebuffer,
-			const vk::Rect2D&                 render_area,
-			Const_array_proxy<vk::ClearValue> clear_values,
-			vk::SubpassContents               contents = vk::SubpassContents::eInline
+			const Render_pass&          render_pass,
+			const Framebuffer&          framebuffer,
+			const vk::Rect2D&           render_area,
+			Array_proxy<vk::ClearValue> clear_values,
+			vk::SubpassContents         contents = vk::SubpassContents::eInline
 		) const;
 
 		void next_subpass(vk::SubpassContents contents = vk::SubpassContents::eInline) const
@@ -60,10 +60,10 @@ namespace VKLIB_HPP_NAMESPACE
 		/* Binding */
 
 		void bind_descriptor_sets(
-			vk::PipelineBindPoint                bind_point,
-			const Pipeline_layout&               pipeline_layout,
-			uint32_t                             bind_offset,
-			Const_array_proxy<vk::DescriptorSet> descriptor_sets
+			vk::PipelineBindPoint          bind_point,
+			const Pipeline_layout&         pipeline_layout,
+			uint32_t                       bind_offset,
+			Array_proxy<vk::DescriptorSet> descriptor_sets
 		) const
 		{
 			data->child.bindDescriptorSets(bind_point, pipeline_layout, bind_offset, descriptor_sets, {});
@@ -77,11 +77,8 @@ namespace VKLIB_HPP_NAMESPACE
 			data->child.bindPipeline(bind_point, graphics_pipeline);
 		}
 
-		void bind_vertex_buffers(
-			uint32_t                          first_binding,
-			Const_array_proxy<vk::Buffer>     vertex_buffer,
-			Const_array_proxy<vk::DeviceSize> offsets
-		) const
+		void bind_vertex_buffers(uint32_t first_binding, Array_proxy<vk::Buffer> vertex_buffer, Array_proxy<vk::DeviceSize> offsets)
+			const
 		{
 			data->child.bindVertexBuffers(first_binding, vertex_buffer, offsets);
 		}
@@ -122,22 +119,22 @@ namespace VKLIB_HPP_NAMESPACE
 		}
 
 		void copy_buffer_to_image(
-			const Image&                           dst_image,
-			const Buffer&                          src_buffer,
-			vk::ImageLayout                        image_layout,
-			Const_array_proxy<vk::BufferImageCopy> copy_region
+			const Image&                     dst_image,
+			const Buffer&                    src_buffer,
+			vk::ImageLayout                  image_layout,
+			Array_proxy<vk::BufferImageCopy> copy_region
 		) const
 		{
 			data->child.copyBufferToImage(src_buffer, dst_image, image_layout, copy_region);
 		}
 
 		void blit_image(
-			vk::Image                        src_image,
-			vk::ImageLayout                  src_image_layout,
-			vk::Image                        dst_image,
-			vk::ImageLayout                  dst_image_layout,
-			Const_array_proxy<vk::ImageBlit> regions,
-			vk::Filter                       blit_filter
+			vk::Image                  src_image,
+			vk::ImageLayout            src_image_layout,
+			vk::Image                  dst_image,
+			vk::ImageLayout            dst_image_layout,
+			Array_proxy<vk::ImageBlit> regions,
+			vk::Filter                 blit_filter
 		) const
 		{
 			data->child.blitImage(src_image, src_image_layout, dst_image, dst_image_layout, regions, blit_filter);

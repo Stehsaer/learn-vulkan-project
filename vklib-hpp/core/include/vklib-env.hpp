@@ -30,10 +30,12 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
+		Instance(const vk::InstanceCreateInfo& create_info);
+
 		Instance(
-			const vk::ApplicationInfo&     app_info,
-			Const_array_proxy<const char*> layers,
-			Const_array_proxy<const char*> extensions
+			const vk::ApplicationInfo&      app_info,
+			const Array_proxy<const char*>& layers,
+			const Array_proxy<const char*>& extensions
 		);
 
 		~Instance() override { clean(); }
@@ -78,13 +80,15 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
+		Device(const Physical_device& physical_device, const vk::DeviceCreateInfo& create_info);
+
 		Device(
-			const Physical_device&                       physical_device,
-			Const_array_proxy<vk::DeviceQueueCreateInfo> queue_create_info,
-			Const_array_proxy<const char*>               layers,
-			Const_array_proxy<const char*>               extensions,
-			const vk::PhysicalDeviceFeatures&            features,
-			const void*                                  p_next = nullptr
+			const Physical_device&                 physical_device,
+			Array_proxy<vk::DeviceQueueCreateInfo> queue_create_info,
+			Array_proxy<const char*>               layers,
+			Array_proxy<const char*>               extensions,
+			const vk::PhysicalDeviceFeatures&      features,
+			const void*                            p_next = nullptr
 		);
 
 		void clean() override;
@@ -104,6 +108,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 	  public:
 
+		Command_pool(const Device& device, const vk::CommandPoolCreateInfo& create_info);
 		Command_pool(const Device& device, uint32_t queue_family_idx, vk::CommandPoolCreateFlags flags = {});
 
 		void clean() override;

@@ -4,11 +4,7 @@ namespace VKLIB_HPP_NAMESPACE
 {
 #pragma region "Descriptor Pool"
 
-	Descriptor_pool::Descriptor_pool(
-		const Device&                             device,
-		Const_array_proxy<vk::DescriptorPoolSize> pool_sizes,
-		uint32_t                                  max_sets
-	)
+	Descriptor_pool::Descriptor_pool(const Device& device, Array_proxy<vk::DescriptorPoolSize> pool_sizes, uint32_t max_sets)
 	{
 		vk::DescriptorPoolCreateInfo create_info;
 		create_info.setPoolSizes(pool_sizes)
@@ -28,10 +24,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 #pragma region "Descriptor Set Layout"
 
-	Descriptor_set_layout::Descriptor_set_layout(
-		const Device&                                     device,
-		Const_array_proxy<vk::DescriptorSetLayoutBinding> bindings
-	)
+	Descriptor_set_layout::Descriptor_set_layout(const Device& device, Array_proxy<vk::DescriptorSetLayoutBinding> bindings)
 	{
 		vk::DescriptorSetLayoutCreateInfo create_info;
 		create_info.setBindings(bindings);
@@ -50,9 +43,9 @@ namespace VKLIB_HPP_NAMESPACE
 #pragma region "Pipeline Layout"
 
 	Pipeline_layout::Pipeline_layout(
-		const Device&                              device,
-		Const_array_proxy<vk::DescriptorSetLayout> descriptor_set_layouts,
-		Const_array_proxy<vk::PushConstantRange>   push_constant_ranges
+		const Device&                        device,
+		Array_proxy<vk::DescriptorSetLayout> descriptor_set_layouts,
+		Array_proxy<vk::PushConstantRange>   push_constant_ranges
 	)
 	{
 		vk::PipelineLayoutCreateInfo create_info;
@@ -72,9 +65,9 @@ namespace VKLIB_HPP_NAMESPACE
 #pragma region "Descriptor Set"
 
 	std::vector<Descriptor_set> Descriptor_set::create_multiple(
-		const Device&                              device,
-		const Descriptor_pool&                     descriptor_pool,
-		Const_array_proxy<vk::DescriptorSetLayout> layouts
+		const Device&                        device,
+		const Descriptor_pool&               descriptor_pool,
+		Array_proxy<vk::DescriptorSetLayout> layouts
 	)
 	{
 		std::vector<Descriptor_set> target;
@@ -99,7 +92,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 #pragma region "Shader Module"
 
-	Shader_module::Shader_module(const Device& device, Const_array_proxy<uint8_t> code)
+	Shader_module::Shader_module(const Device& device, Array_proxy<uint8_t> code)
 	{
 		auto create_info = vk::ShaderModuleCreateInfo().setCodeSize(code.size()).setPCode((const uint32_t*)code.data());
 
@@ -123,10 +116,10 @@ namespace VKLIB_HPP_NAMESPACE
 #pragma region "Render Pass"
 
 	Render_pass::Render_pass(
-		const Device&                                device,
-		Const_array_proxy<vk::AttachmentDescription> attachment_descriptions,
-		Const_array_proxy<vk::SubpassDescription>    subpass_descriptions,
-		Const_array_proxy<vk::SubpassDependency>     subpass_dependencies
+		const Device&                          device,
+		Array_proxy<vk::AttachmentDescription> attachment_descriptions,
+		Array_proxy<vk::SubpassDescription>    subpass_descriptions,
+		Array_proxy<vk::SubpassDependency>     subpass_dependencies
 	)
 	{
 		vk::RenderPassCreateInfo create_info;
@@ -183,10 +176,10 @@ namespace VKLIB_HPP_NAMESPACE
 #pragma region "Framebuffer"
 
 	Framebuffer::Framebuffer(
-		const Device&                    device,
-		const Render_pass&               render_pass,
-		Const_array_proxy<vk::ImageView> image_views,
-		vk::Extent3D                     extent
+		const Device&              device,
+		const Render_pass&         render_pass,
+		Array_proxy<vk::ImageView> image_views,
+		vk::Extent3D               extent
 	)
 	{
 		vk::FramebufferCreateInfo create_info;

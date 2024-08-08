@@ -61,7 +61,7 @@ namespace vklib::io::gltf::data_parser
 		}
 		else
 		{
-			for (auto i : Range(accessor.count))
+			for (auto i : Iota(accessor.count))
 			{
 				const auto* src_ptr = (const T*)((const uint8_t*)ptr + i * buffer_view.byteStride);
 
@@ -111,12 +111,12 @@ namespace vklib::io::gltf::data_parser
 			{
 			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
 			{
-				for (auto i : Range(accessor.count))
+				for (auto i : Iota(accessor.count))
 				{
 					const auto* src_ptr = (const uint8_t*)ptr + buffer_view.byteStride * i;
 					auto*       dst_ptr = (uint16_t*)&dst[i];
 
-					for (auto offset : Range(sizeof(T) / sizeof(uint16_t)))
+					for (auto offset : Iota(sizeof(T) / sizeof(uint16_t)))
 					{
 						dst_ptr[offset] = *src_ptr;
 					}
@@ -125,7 +125,7 @@ namespace vklib::io::gltf::data_parser
 			}
 			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
 			{
-				for (auto i : Range(accessor.count))
+				for (auto i : Iota(accessor.count))
 				{
 					const auto* src_ptr = reinterpret_cast<const T*>((const uint8_t*)ptr + buffer_view.byteStride * i);
 
@@ -169,16 +169,16 @@ namespace vklib::io::gltf::data_parser
 		{
 			if (buffer_view.byteStride == 0)
 			{
-				for (auto i : Range(sizeof(T) / sizeof(float) * accessor.count))
+				for (auto i : Iota(sizeof(T) / sizeof(float) * accessor.count))
 					*(reinterpret_cast<float*>(dst.data()) + i) = transformation(ptr[i]);
 			}
 			else
 			{
-				for (auto i : Range(accessor.count))
+				for (auto i : Iota(accessor.count))
 				{
 					const auto* src_ptr = (const uint8_t*)ptr + i * buffer_view.byteStride;
 
-					for (auto offset : Range(sizeof(T) / sizeof(float)))
+					for (auto offset : Iota(sizeof(T) / sizeof(float)))
 					{
 						reinterpret_cast<float*>(dst.data() + i)[offset]
 							= transformation(reinterpret_cast<const Ty*>(src_ptr)[offset]);

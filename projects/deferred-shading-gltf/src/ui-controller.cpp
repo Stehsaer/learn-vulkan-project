@@ -96,7 +96,7 @@ void Ui_controller::init_imgui(const Environment& env)
 void Ui_controller::create_imgui_rt(const Environment& env)
 {
 	imgui_framebuffers.clear();
-	for (auto i : Range(env.swapchain.image_count))
+	for (auto i : Iota(env.swapchain.image_count))
 	{
 		imgui_framebuffers.emplace_back(Framebuffer(env.device, imgui_renderpass, {env.swapchain.image_views[i]}, vk::Extent3D(env.swapchain.extent, 1)));
 	}

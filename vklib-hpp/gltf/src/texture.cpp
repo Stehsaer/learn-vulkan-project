@@ -74,7 +74,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 				const uint8_t* const raw = tex.image.data();
 
-				for (const auto i : Range(tex.width * tex.height))
+				for (const auto i : Iota(tex.width * tex.height))
 				{
 					data[i * 4 + 0] = raw[i * 3 + 0];
 					data[i * 4 + 1] = raw[i * 3 + 1];
@@ -99,7 +99,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 				const auto* const raw = (const uint16_t*)tex.image.data();
 
-				for (const auto i : Range(tex.width * tex.height))
+				for (const auto i : Iota(tex.width * tex.height))
 				{
 					data[i * 4 + 0] = raw[i * 3 + 0];
 					data[i * 4 + 1] = raw[i * 3 + 1];

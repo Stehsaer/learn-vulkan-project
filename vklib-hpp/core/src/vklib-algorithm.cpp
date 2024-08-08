@@ -251,7 +251,7 @@ namespace VKLIB_HPP_NAMESPACE::algorithm
 
 			int mip_width = width, mip_height = height;
 
-			for (auto i : Range(max_mipmap_level - 1))
+			for (auto i : Iota(max_mipmap_level - 1))
 			{
 				vk::ImageBlit blit_info;
 
@@ -356,12 +356,12 @@ namespace VKLIB_HPP_NAMESPACE::algorithm
 			std::pmr::vector<uint32_t>          stack(&pool);
 
 			// find smallest y
-			for (auto i : Range(1, 8))
+			for (auto i : Iota(1, 8))
 				if (input[i].y < input[0].y || (input[i].y == input[0].y && input[i].x < input[0].x)) std::swap(input[i], input[0]);
 
 			// calculate angle
 			points[0] = Point{input[0]};
-			for (auto i : Range(1, 8))
+			for (auto i : Iota(1, 8))
 			{
 				const glm::vec2 delta = input[i] - input[0];
 				points[i]             = Point{input[i], std::atan2(delta.y, delta.x)};
@@ -380,7 +380,7 @@ namespace VKLIB_HPP_NAMESPACE::algorithm
 			stack.push_back(0);
 			stack.push_back(1);
 
-			for (auto i : Range(2, 8))
+			for (auto i : Iota(2, 8))
 			{
 				while (stack.size() >= 2)
 				{
@@ -398,7 +398,7 @@ namespace VKLIB_HPP_NAMESPACE::algorithm
 
 			const auto convex_count = stack.size();
 
-			for (auto i : Range(convex_count))
+			for (auto i : Iota(convex_count))
 			{
 				input[i] = points[stack[i]].pt;
 			}

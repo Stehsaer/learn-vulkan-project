@@ -118,10 +118,9 @@ Drawcall_generator::Gen_result Drawcall_generator::generate(const Gen_params& pa
 	const auto& traverser = *params.node_traverser;
 
 	// Iterates over all nodes
-	for (auto node_idx : Range(model.nodes.size()))
+	for (auto [node_idx, node] : Walk(model.nodes))
 	{
 		const auto node_trans = traverser[node_idx].transform;
-		const auto node       = model.nodes[node_idx];
 
 		// Skip nodes without mesh
 		if (!node.mesh_idx || !traverser[node_idx].traversed) continue;
@@ -149,9 +148,8 @@ Drawcall_generator::Gen_result Drawcall_generator::generate(const Gen_params& pa
 				const auto& skin = model.skins[node.skin_idx.value()];
 
 				// iterates over all joints, and get an oversized bounding box
-				for (auto i : Range(skin.joints.size()))
+				for (auto [i, joint_idx] : Walk(skin.joints))
 				{
-					const auto joint_idx         = skin.joints[i];
 					auto       local_edge_points = edge_points;
 
 					for (auto& pt : local_edge_points)

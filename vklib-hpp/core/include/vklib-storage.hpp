@@ -100,7 +100,7 @@ namespace VKLIB_HPP_NAMESPACE
 		inline static std::array<vk::Buffer, Size> to_array(Buffer (&&arr)[Size])
 		{
 			std::array<vk::Buffer, Size> ret;
-			for (auto idx : Range(Size)) ret[idx] = arr[idx];
+			for (auto idx : Iota(Size)) ret[idx] = arr[idx];
 
 			return ret;
 		}

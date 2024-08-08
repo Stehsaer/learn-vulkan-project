@@ -57,7 +57,7 @@ void Render_source::generate_material_data(const Environment& env, const Pipelin
 		);
 
 		std::vector<uint8_t> mat_params(element_size * materials.size());
-		for (const auto i : Range(materials.size()))
+		for (const auto i : Iota(materials.size()))
 		{
 			auto* ptr                                                     = mat_params.data() + element_size * i;
 			*reinterpret_cast<io::gltf::Material::Mat_params*>(ptr)       = materials[i].params;
@@ -77,7 +77,7 @@ void Render_source::generate_material_data(const Environment& env, const Pipelin
 	}
 
 	// Iterates over all materials
-	for (const auto i : Range(materials.size()))
+	for (const auto i : Iota(materials.size()))
 	{
 		const auto& material       = materials[i];
 		const auto &descriptor_set = descriptor_set_list[i], &albedo_only_set = albedo_only_descriptor_set_list[i];
@@ -206,7 +206,7 @@ void Render_source::generate_skin_data(const Environment& env, const Pipeline_se
 	const auto gbuffer_descriptors = Descriptor_set::create_multiple(env.device, skin_descriptor_pool, gbuffer_layouts),
 			   shadow_descriptors  = Descriptor_set::create_multiple(env.device, skin_descriptor_pool, shadow_layouts);
 
-	for (auto i : Range(model->skins.size())) skin_descriptors.emplace_back(gbuffer_descriptors[i], shadow_descriptors[i]);
+	for (auto i : Iota(model->skins.size())) skin_descriptors.emplace_back(gbuffer_descriptors[i], shadow_descriptors[i]);
 
 	/* Create full storage buffer */
 
@@ -232,10 +232,8 @@ void Render_source::generate_skin_data(const Environment& env, const Pipeline_se
 
 	uint32_t count = 0;
 
-	for (auto i : Range(model->skins.size()))
+	for (auto [i, skin] : Walk(model->skins))
 	{
-		const auto& skin = model->skins[i];
-
 		// Create CPU array
 
 		skin_matrix_cpu.emplace_back(skin.joints.size());
@@ -269,7 +267,7 @@ void Render_source::stream_skin_data(const Environment& env [[maybe_unused]], co
 	{
 		uint32_t offset = 0;
 
-		for (auto i : Range(model->skins.size()))
+		for (auto i : Iota(model->skins.size()))
 		{
 			std::copy(skin_matrix_cpu[i].begin(), skin_matrix_cpu[i].end(), mapped_memory + offset);
 			offset += model->skins[i].joints.size();
@@ -476,7 +474,7 @@ Shadow_parameter Render_params::get_shadow_parameters(
 	glm::vec2 center;
 
 	// iterates over the envelope and find the best fit
-	for (auto i : Range(count))
+	for (auto i : Iota(count))
 	{
 		const auto i2 = (i + 1) % count;                      // index of the next point in the envelope-loop
 		const auto p1 = arr[i], p2 = arr[i2];                 // p1: current point; p2: next point
@@ -486,7 +484,7 @@ Shadow_parameter Render_params::get_shadow_parameters(
 			  max_height_sqr = -std::numeric_limits<float>::max();
 
 		// iterate over all points in the envelope
-		for (auto j : Range(count))
+		for (auto j : Iota(count))
 		{
 			const auto vec2 = glm::vec2(arr[j] - p1);  // 2D relative vector
 

@@ -189,7 +189,7 @@ void Hdri_resource::generate_environment(const Environment& env, const Image_vie
 			{vk::ImageAspectFlagBits::eColor, 0, environment_layers, 0, 6}
 		);
 
-		for (auto i : Range(6))
+		for (auto i : Iota(6))
 			cubemap_image_views[i] = Image_view(
 				env.device,
 				environment,
@@ -227,7 +227,7 @@ void Hdri_resource::generate_environment(const Environment& env, const Image_vie
 			{vk::ImageAspectFlagBits::eColor, 0, temp_mipmapped_env_level, 0, 6}
 		);
 
-		for (auto i : Range(6))
+		for (auto i : Iota(6))
 			mipmapped_image_views[i] = Image_view(
 				env.device,
 				mipmapped_environment,
@@ -258,7 +258,7 @@ void Hdri_resource::generate_environment(const Environment& env, const Image_vie
 	/* Create Framebuffers */
 
 	std::array<Framebuffer, 6> framebuffers;
-	for (auto i : Range(6))
+	for (auto i : Iota(6))
 	{
 		const auto image_views = Image_view::to_array({cubemap_image_views[i], mipmapped_image_views[i]});
 		framebuffers[i]        = Framebuffer(env.device, render_pass, image_views, {resolution, resolution, 1});
@@ -362,7 +362,7 @@ void Hdri_resource::generate_environment(const Environment& env, const Image_vie
 		});
 
 		// Draw 6 faces
-		for (auto i : Range(6))
+		for (auto i : Iota(6))
 		{
 			command_buffer.begin_render_pass(
 				render_pass,
@@ -578,7 +578,7 @@ void Hdri_resource::generate_diffuse(const Environment& env, uint32_t resolution
 			{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 6}
 		);
 
-		for (auto i : Range(6))
+		for (auto i : Iota(6))
 			cubemap_image_views[i] = Image_view(
 				env.device,
 				diffuse,
@@ -591,7 +591,7 @@ void Hdri_resource::generate_diffuse(const Environment& env, uint32_t resolution
 	/* Create Framebuffers */
 
 	std::array<Framebuffer, 6> framebuffers;
-	for (auto i : Range(6))
+	for (auto i : Iota(6))
 	{
 		framebuffers[i] = Framebuffer(env.device, render_pass, {cubemap_image_views[i]}, {resolution, resolution, 1});
 	}
@@ -692,7 +692,7 @@ void Hdri_resource::generate_diffuse(const Environment& env, uint32_t resolution
 		});
 
 		// Draw 6 faces
-		for (auto i : Range(6))
+		for (auto i : Iota(6))
 		{
 			command_buffer.begin_render_pass(
 				render_pass,
@@ -916,7 +916,7 @@ void Hdri_resource::generate_specular(const Environment& env, uint32_t resolutio
 	// Generate resolution list
 	{
 		uint32_t resolution_downsampled = resolution;
-		for (auto level : Range(environment_layers - 1))
+		for (auto level : Iota(environment_layers - 1))
 		{
 			resolution_downsampled /= 2;
 			resolution_list[level] = resolution_downsampled;
@@ -924,9 +924,9 @@ void Hdri_resource::generate_specular(const Environment& env, uint32_t resolutio
 	}
 
 	// Generate Framebuffers and Image views
-	for (auto level : Range(environment_layers - 1))
+	for (auto level : Iota(environment_layers - 1))
 	{
-		for (auto face : Range(6u))
+		for (auto face : Iota(6u))
 		{
 			image_views[level][face] = Image_view(
 				env.device,
@@ -950,7 +950,7 @@ void Hdri_resource::generate_specular(const Environment& env, uint32_t resolutio
 		command_buffer.begin();
 
 		// draw each level
-		for (auto level : Range(environment_layers - 1))
+		for (auto level : Iota(environment_layers - 1))
 		{
 			const auto current_resolution = resolution_list[level];
 			command_buffer.set_viewport(
@@ -962,7 +962,7 @@ void Hdri_resource::generate_specular(const Environment& env, uint32_t resolutio
 			});
 
 			// Draw 6 faces
-			for (auto i : Range(6))
+			for (auto i : Iota(6))
 			{
 				command_buffer.begin_render_pass(
 					render_pass,

@@ -1,70 +1,15 @@
 #pragma once
 
 #include "vklib-common.hpp"
+#include "vklib-helper.hpp"
 #include <iostream>
 #include <utility>
-
-//* - Mono Resource:
-//		Stand-alone resource, no external dependent. Constructed by constructor. eg. Instance, Physical_device
-//* - Child Resource:
-//		Dependent on external objects to correctly construct and deconstruct. Constructed by constructor. eg. Device
 
 #define No_discard [[nodiscard]]
 
 namespace VKLIB_HPP_NAMESPACE
 {
-	template <typename T>
-		requires(std::is_integral_v<std::remove_cvref_t<T>> && !std::is_same_v<std::remove_cvref_t<T>, bool>)
-	class Range
-	{
-		std::remove_cvref_t<T> start_val, end_val;
-
-		class Iterator
-		{
-			T val;
-
-			friend Range;
-
-			Iterator(T val) noexcept :
-				val(val)
-			{
-			}
-
-		  public:
-
-			T         operator*() const noexcept { return val; }
-			Iterator& operator++() noexcept
-			{
-				val++;
-				return *this;
-			}
-			bool operator==(const Iterator& _val) const noexcept { return val == _val.val; }
-			bool operator!=(const Iterator& _val) const noexcept { return val != _val.val; }
-		};
-
-	  public:
-
-		template <typename T1>
-			requires(std::is_convertible_v<std::remove_cvref_t<T1>, std::remove_cvref_t<T>>)
-		Range(T begin, T1 end) :
-			start_val(begin),
-			end_val(end)
-		{
-			assert((T)end >= begin);
-		}
-
-		Range(T end) :
-			start_val(0),
-			end_val(end)
-		{
-			assert(end >= (T)0);
-		}
-
-		Iterator begin() const noexcept { return Iterator(start_val); }
-		Iterator end() const noexcept { return Iterator(end_val); }
-	};
-
-	inline std::string crop_file_macro(const std::string& str)
+	inline constexpr std::string crop_file_macro(const std::string& str)
 	{
 		int len = str.length();
 		while (--len >= 0)
@@ -184,7 +129,7 @@ namespace VKLIB_HPP_NAMESPACE
 		inline static std::array<T, Size> to_array(const std::array<Ty, Size>& arr)
 		{
 			std::array<T, Size> ret;
-			for (auto i : Range(Size)) ret[i] = arr[i];
+			for (auto i : Iota(Size)) ret[i] = arr[i];
 
 			return ret;
 		}
@@ -194,7 +139,7 @@ namespace VKLIB_HPP_NAMESPACE
 		inline static std::vector<T> to_vector(const std::vector<Derived>& vec)
 		{
 			std::vector<T> ret(vec.size());
-			for (auto idx : Range(vec.size())) ret[idx] = vec[idx];
+			for (auto idx : Iota(vec.size())) ret[idx] = vec[idx];
 			return ret;
 		}
 
@@ -307,7 +252,7 @@ namespace VKLIB_HPP_NAMESPACE
 		inline static std::array<T, Size> to_array(const std::array<Ty, Size>& arr)
 		{
 			std::array<T, Size> ret;
-			for (auto i : Range(Size)) ret[i] = arr[i];
+			for (auto i : Iota(Size)) ret[i] = arr[i];
 
 			return ret;
 		}
@@ -317,7 +262,7 @@ namespace VKLIB_HPP_NAMESPACE
 		inline static std::vector<T> to_vector(const std::vector<Derived>& vec)
 		{
 			std::vector<T> ret(vec.size());
-			for (auto idx : Range(vec.size())) ret[idx] = vec[idx];
+			for (auto idx : Iota(vec.size())) ret[idx] = vec[idx];
 			return ret;
 		}
 

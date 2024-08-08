@@ -53,7 +53,7 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 		}
 	};
 
-	for (auto i : Range(device_list.size()))
+	for (auto [i, device] : Walk(device_list))
 	{
 		const auto& device = device_list[i];
 
@@ -175,9 +175,8 @@ void Environment::find_queue_families()
 	// match graphics queue family
 	const auto g_family_match = [=]() -> std::optional<uint32_t>
 	{
-		for (auto i : Range(family_properties.size()))
+		for (auto [i, property] : Walk(family_properties))
 		{
-			const auto& property = family_properties[i];
 			if ((property.queueCount >= 1) && (property.queueFlags & vk::QueueFlagBits::eGraphics)) return i;
 		}
 		return std::nullopt;
@@ -185,9 +184,8 @@ void Environment::find_queue_families()
 
 	const auto c_family_match = [=]() -> std::optional<uint32_t>
 	{
-		for (auto i : Range(family_properties.size()))
+		for (auto [i, property] : Walk(family_properties))
 		{
-			const auto& property = family_properties[i];
 			if ((property.queueCount >= 1) && (property.queueFlags & vk::QueueFlagBits::eCompute)) return i;
 		}
 		return std::nullopt;
@@ -196,7 +194,7 @@ void Environment::find_queue_families()
 	// match present queue family
 	const auto p_family_match = [=, this]() -> std::optional<uint32_t>
 	{
-		for (auto i : Range(family_properties.size()))
+		for (auto i : Iota(family_properties.size()))
 		{
 			auto supported = physical_device.getSurfaceSupportKHR(i, surface);
 
@@ -400,7 +398,7 @@ void Environment::Env_swapchain::create_images(const Environment& env)
 
 	// create views
 	image_views.clear();
-	for (auto i : Range(image_count))
+	for (auto i : Iota(image_count))
 		image_views.emplace_back(
 			env.device,
 			image_handles[i],

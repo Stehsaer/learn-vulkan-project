@@ -38,7 +38,7 @@ namespace VKLIB_HPP_NAMESPACE::io::wavefront
 				std::array<glm::vec2, 3> uvs;
 
 				// Regular Data, iterate over 3 vertices in a triangle
-				for (auto local_vert_idx : Range(3))
+				for (auto local_vert_idx : Iota(3))
 				{
 					const size_t           current_idx      = face_vert_idx + local_vert_idx;
 					const tinyobj::index_t current_data_idx = mesh.indices[current_idx];
@@ -51,7 +51,7 @@ namespace VKLIB_HPP_NAMESPACE::io::wavefront
 				const glm::vec3 tangent
 					= algorithm::geometry::vertex_tangent(positions[0], positions[1], positions[2], uvs[0], uvs[1], uvs[2]);
 
-				for (auto i : Range(3))
+				for (auto i : Iota(3))
 				{
 					output.vertices.emplace_back(positions[i], normals[i], tangent, uvs[i]);
 				}

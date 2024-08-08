@@ -95,7 +95,7 @@ void Core::recreate_swapchain()
 
 	env.device->waitIdle();
 
-	for (auto i : Range(env.swapchain.image_count)) env.command_buffer[i].reset();
+	for (auto i : Iota(env.swapchain.image_count)) env.command_buffer[i].reset();
 
 	env.swapchain  = Environment::Env_swapchain();
 	render_targets = Render_targets();

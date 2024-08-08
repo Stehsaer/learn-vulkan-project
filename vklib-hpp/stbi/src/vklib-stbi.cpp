@@ -146,7 +146,7 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 
 		// Transform 32bit float to 16bit float
 		std::vector<uint16_t> image_converted(image_extent.width * image_extent.height * 4);
-		for (auto i : Range(raw_data.size())) image_converted[i] = algorithm::conversion::f32_to_f16_clamped(raw_data[i]);
+		for (auto i : Iota(raw_data.size())) image_converted[i] = algorithm::conversion::f32_to_f16_clamped(raw_data[i]);
 
 		// Create Objects
 

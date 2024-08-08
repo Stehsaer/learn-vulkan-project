@@ -18,7 +18,7 @@ App_render_logic::App_render_logic(std::shared_ptr<Core> resource) :
 	copy_buffer_semaphore    = Semaphore(core->env.device);
 
 	// Create command buffers
-	for (auto _ : Range(core->env.swapchain.image_count)) command_buffers.emplace_back(core->env.command_pool);
+	for (auto _ : Iota(core->env.swapchain.image_count)) command_buffers.emplace_back(core->env.command_pool);
 }
 
 std::shared_ptr<Application_logic_base> App_render_logic::work()
@@ -293,7 +293,7 @@ void App_render_logic::generate_drawcalls(uint32_t idx)
 	update_uniforms(idx);
 
 	// Generate Shadow Maps
-	for (const auto csm_idx : Range(csm_count))
+	for (const auto csm_idx : Iota(csm_count))
 	{
 		auto gen_params = Drawcall_generator::Gen_params{
 			core->source.model.get(),
@@ -514,7 +514,7 @@ void App_render_logic::update_uniforms(uint32_t idx)
 	}
 
 	std::array<Shadow_pipeline::Shadow_uniform, csm_count> shadow_uniforms;
-	for (const auto csm_idx : Range(csm_count))
+	for (const auto csm_idx : Iota(csm_count))
 	{
 		shadow_params[csm_idx] = core->params.get_shadow_parameters(
 			core->params.divide_projection_plane(csm_idx / 3.0f),
@@ -538,7 +538,7 @@ void App_render_logic::update_uniforms(uint32_t idx)
 	const auto shadow_write    = core->render_targets.render_target_set[idx].shadow_rt.update_uniform(shadow_uniforms);
 
 	std::array<vk::WriteDescriptorSet, csm_count> shadow_update_info;
-	for (auto i : Range(csm_count)) shadow_update_info[i] = shadow_write[i];
+	for (auto i : Iota(csm_count)) shadow_update_info[i] = shadow_write[i];
 
 	const auto write_sets = utility::join_array(
 		std::to_array<vk::WriteDescriptorSet>({lighting_write, composite_write, gbuffer_update}),
@@ -698,7 +698,7 @@ void App_render_logic::draw_shadow(uint32_t idx, const Command_buffer& command_b
 	};
 
 	command_buffer.begin();
-	for (const auto csm_idx : Range(csm_count))
+	for (const auto csm_idx : Iota(csm_count))
 	{
 		core->env.debug_marker.begin_region(command_buffer, std::format("Render Shadow Map, Level {}", csm_idx), {1.0, 1.0, 0.0, 1.0});
 		command_buffer.begin_render_pass(
@@ -1442,7 +1442,7 @@ void App_render_logic::lighting_tab()
 		// Fxaa Mode
 		if (ImGui::BeginCombo("FXAA Mode", fxaa_mode_name.at(params.fxaa_mode)))
 		{
-			for (auto i : Range((size_t)Fxaa_mode::Max_enum))
+			for (auto i : Iota((size_t)Fxaa_mode::Max_enum))
 			{
 				const auto mode = (Fxaa_mode)i;
 				if (ImGui::Selectable(fxaa_mode_name.at(mode), mode == params.fxaa_mode)) params.fxaa_mode = mode;
@@ -1650,12 +1650,12 @@ void App_render_logic::upload_skin(uint32_t idx)
 
 	if (model.skins.empty()) return;
 
-	for (auto i : Range(model.skins.size()))
+	for (auto i : Iota(model.skins.size()))
 	{
 		auto&       dst  = core->source.skin_matrix_cpu[i];
 		const auto& skin = model.skins[i];
 
-		for (auto j : Range(skin.joints.size()))
+		for (auto j : Iota(skin.joints.size()))
 		{
 			dst[j] = traverser[skin.joints[j]].transform * skin.inverse_bind_matrices[j];
 		}
@@ -1682,7 +1682,7 @@ void App_render_logic::animation_tab()
 		}
 
 		// Iterate over all animations
-		for (auto i : Range<int>(model.animations.size()))
+		for (auto i : Iota<int>(model.animations.size()))
 		{
 			const auto& animation = model.animations[i];
 
@@ -1752,7 +1752,7 @@ void App_render_logic::camera_tab()
 		}
 
 		// Iterate over all animations
-		for (auto i : Range<int>(model.cameras.size()))
+		for (auto i : Iota<int>(model.cameras.size()))
 		{
 			const auto& camera = model.cameras[i];
 

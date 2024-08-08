@@ -346,7 +346,7 @@ void Gbuffer_pipeline::create(const Environment& env)
 		std::array<vk::AttachmentDescription, 5> attachment_descriptions;
 		const auto formats = std::to_array({normal_format, color_format, pbr_format, emissive_format, depth_format});
 
-		for (auto i : Range(5))
+		for (auto i : Iota(5))
 			attachment_descriptions[i]
 				.setInitialLayout(vk::ImageLayout::eUndefined)
 				.setFinalLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
@@ -777,7 +777,7 @@ void Lighting_pipeline::create(const Environment& env)
 		);
 
 		// Assign binding indices
-		for (auto i : Range(7)) bindings[i].setBinding(i);
+		for (auto i : Iota(7)) bindings[i].setBinding(i);
 
 		// Shadow map
 		bindings[4].setDescriptorCount(csm_count);
@@ -1322,7 +1322,7 @@ void Fxaa_pipeline::create(const Environment& env)
 		create_info.setRenderPass(render_pass).setLayout(pipeline_layout).setSubpass(0);
 
 		//* Create Graphics Pipeline
-		for (const auto mode : Range((size_t)Fxaa_mode::Max_enum))
+		for (const auto mode : Iota((size_t)Fxaa_mode::Max_enum))
 		{
 			spec.mode       = mode;
 			pipelines[mode] = Graphics_pipeline(env.device, create_info);

@@ -76,7 +76,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				{
 					list.reserve(list.size() + vertex_count);
 
-					for (auto item : Range(vertex_count - 2))
+					for (auto item : Iota(vertex_count - 2))
 					{
 						list.emplace_back(dat[item]);
 						list.emplace_back(dat[item + 1]);
@@ -92,7 +92,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					for (auto idx : Range(vertex_count))
+					for (auto idx : Iota(vertex_count))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
 						list.emplace_back(*((const T*)src_ptr));
@@ -102,7 +102,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				}
 				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
 				{
-					for (auto idx : Range(vertex_count - 2))
+					for (auto idx : Iota(vertex_count - 2))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
 						list.emplace_back(*((const T*)src_ptr));
@@ -135,7 +135,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			{
 				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					for (auto i : Range(vertex_count))
+					for (auto i : Iota(vertex_count))
 					{
 						list.emplace_back(dat[indices[i]]);
 					}
@@ -144,7 +144,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				}
 				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
 				{
-					for (auto item : Range(vertex_count - 2))
+					for (auto item : Iota(vertex_count - 2))
 					{
 						list.emplace_back(dat[indices[item]]);
 						list.emplace_back(dat[indices[item + 1]]);
@@ -158,7 +158,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			{
 				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					for (auto idx : Range(vertex_count))
+					for (auto idx : Iota(vertex_count))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
 						list.emplace_back(*((const T*)src_ptr));
@@ -168,7 +168,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				}
 				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
 				{
-					for (auto idx : Range(vertex_count - 2))
+					for (auto idx : Iota(vertex_count - 2))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
 						list.emplace_back(*((const T*)src_ptr));
@@ -203,7 +203,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			{
 				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					for (auto i : Range(vertex_count))
+					for (auto i : Iota(vertex_count))
 					{
 						list.emplace_back(dat[i] * dat[i].w);
 					}
@@ -212,7 +212,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				}
 				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
 				{
-					for (auto item : Range(vertex_count - 2))
+					for (auto item : Iota(vertex_count - 2))
 					{
 						list.emplace_back(dat[item] * dat[item].w);
 						list.emplace_back(dat[item + 1] * dat[item].w);
@@ -226,7 +226,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			{
 				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					for (auto idx : Range(vertex_count))
+					for (auto idx : Iota(vertex_count))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
 
@@ -238,7 +238,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				}
 				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
 				{
-					for (auto idx : Range(vertex_count - 2))
+					for (auto idx : Iota(vertex_count - 2))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * idx;
 
@@ -277,7 +277,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			{
 				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					for (auto i : Range(vertex_count))
+					for (auto i : Iota(vertex_count))
 					{
 						list.emplace_back(dat[indices[i]] * dat[indices[i]].w);
 					}
@@ -286,7 +286,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				}
 				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
 				{
-					for (auto item : Range(vertex_count - 2))
+					for (auto item : Iota(vertex_count - 2))
 					{
 						list.emplace_back(dat[indices[item]] * dat[indices[item]].w);
 						list.emplace_back(dat[indices[item + 1]] * dat[indices[item]].w);
@@ -300,7 +300,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			{
 				if (primitive.mode == TINYGLTF_MODE_TRIANGLES)
 				{
-					for (auto idx : Range(vertex_count))
+					for (auto idx : Iota(vertex_count))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
 
@@ -312,7 +312,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				}
 				else if (primitive.mode == TINYGLTF_MODE_TRIANGLE_STRIP)
 				{
-					for (auto idx : Range(vertex_count - 2))
+					for (auto idx : Iota(vertex_count - 2))
 					{
 						const auto* src_ptr = (const uint8_t*)dat + buffer_view.byteStride * indices[idx];
 
@@ -462,7 +462,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			else
 			{
 				// manual generate data
-				for (auto _ : Range(vertex_count / 3))
+				for (auto _ : Iota(vertex_count / 3))
 				{
 					uv.emplace_back(0.0, 0.0);
 					uv.emplace_back(0.0, 1.0);
@@ -518,7 +518,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 					if (should_discard) [[unlikely]]
 					{
-						for (auto i : Range(3))
+						for (auto i : Iota(3))
 						{
 							// if present, swizzle normal vector as the tangent vector
 							const auto normal  = normal_buffer[normal_offset + i];
@@ -583,7 +583,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		nodes.reserve(model.nodes.size());
 
 		// iterates over all nodes
-		for (auto idx : Range(model.nodes.size()))
+		for (auto idx : Iota(model.nodes.size()))
 		{
 			const auto& node = model.nodes[idx];
 
@@ -598,7 +598,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 	void Model::load_all_images(Loader_context& loader_context, const tinygltf::Model& gltf_model)
 	{
-		for (auto i : Range(gltf_model.images.size()))
+		for (auto i : Iota(gltf_model.images.size()))
 		{
 			const auto& image = gltf_model.images[i];
 			if (loader_context.sub_progress) *loader_context.sub_progress = (float)i / gltf_model.images.size();
@@ -611,7 +611,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 
 	void Model::load_all_textures(Loader_context& loader_context, const tinygltf::Model& gltf_model)
 	{
-		for (auto i : Range(gltf_model.textures.size()))
+		for (auto i : Iota(gltf_model.textures.size()))
 		{
 			const auto& texture = gltf_model.textures[i];
 			texture_views.emplace_back(loader_context, textures, gltf_model, texture);
@@ -745,7 +745,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 	{
 		Mesh_data_context mesh_context;
 
-		for (auto idx : Range(gltf_model.meshes.size()))
+		for (auto idx : Iota(gltf_model.meshes.size()))
 		{
 			const auto& mesh = gltf_model.meshes[idx];
 			if (loader_context.sub_progress) *loader_context.sub_progress = (float)idx / gltf_model.meshes.size();

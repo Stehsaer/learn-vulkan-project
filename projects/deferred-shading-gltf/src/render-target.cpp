@@ -10,7 +10,7 @@ void Shadow_rt::create(
 	const std::array<uint32_t, csm_count>& shadow_map_size
 )
 {
-	for (auto i : Range(csm_count))
+	for (auto i : Iota(csm_count))
 	{
 		const auto resolution = shadow_map_size[i];
 
@@ -62,11 +62,11 @@ std::array<Write_descriptor_buffer<>, csm_count> Shadow_rt::update_uniform(
 	const std::array<Shadow_pipeline::Shadow_uniform, csm_count>& data
 )
 {
-	for (auto i : Range(csm_count)) shadow_matrix_uniform[i] << std::span(&data[i], 1);
+	for (auto i : Iota(csm_count)) shadow_matrix_uniform[i] << std::span(&data[i], 1);
 
 	std::array<Write_descriptor_buffer<>, csm_count> ret;
 
-	for (auto i : Range(csm_count))
+	for (auto i : Iota(csm_count))
 		ret[i] = Write_descriptor_buffer<>(shadow_matrix_descriptor_set[i], 0)
 					 .set_info({shadow_matrix_uniform[i], 0, sizeof(Shadow_pipeline::Shadow_uniform)});
 
@@ -274,7 +274,7 @@ Write_descriptor_image<csm_count> Lighting_rt::link_shadow(const Shadow_rt& shad
 {
 	Write_descriptor_image<csm_count> ret(input_descriptor_set, 4);
 
-	for (auto i : Range(csm_count))
+	for (auto i : Iota(csm_count))
 		ret[i] = {shadow_map_sampler, shadow.shadow_image_views[i], vk::ImageLayout::eShaderReadOnlyOptimal};
 
 	return ret;
@@ -352,7 +352,7 @@ void Auto_exposure_compute_rt::create(const Environment& env, const Descriptor_p
 		.set_object_name(out_buffer, "Auto Exposure Output Buffer")
 		.set_object_name(lerp_descriptor_set, "Auto Exposure Lerp Input Descriptor Set");
 
-	for (auto i : Range(count))
+	for (auto i : Iota(count))
 	{
 		env.debug_marker.set_object_name(
 			luminance_avg_descriptor_sets[i],
@@ -371,7 +371,7 @@ Auto_exposure_compute_rt::link_lighting(const std::vector<const Lighting_rt*>& r
 	ret1.reserve(rt.size());
 	ret2.reserve(rt.size());
 
-	for (auto i : Range(rt.size()))
+	for (auto i : Iota(rt.size()))
 	{
 		ret1.push_back(Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(luminance_avg_descriptor_sets[i], 0)
 						   .set_info({{}, rt[i]->brightness_view, vk::ImageLayout::eGeneral}));
@@ -414,7 +414,7 @@ void Bloom_rt::create(const Environment& env, const Descriptor_pool& pool, const
 	);
 
 	extents[0] = extent;
-	for (auto i : Range(bloom_downsample_count))
+	for (auto i : Iota(bloom_downsample_count))
 	{
 		downsample_chain_view[i] = Image_view(
 			env.device,
@@ -458,7 +458,7 @@ void Bloom_rt::create(const Environment& env, const Descriptor_pool& pool, const
 		return Image_sampler(env.device, sampler_create_info);
 	}();
 
-	for (auto i : Range(bloom_downsample_count - 2))
+	for (auto i : Iota(bloom_downsample_count - 2))
 	{
 		upsample_chain_view[i] = Image_view(
 			env.device,
@@ -521,7 +521,7 @@ Bloom_rt::link_bloom_blur()
 		bloom_downsample_count - 2>
 		ret;
 
-	for (auto i : Range(bloom_downsample_count - 2))
+	for (auto i : Iota(bloom_downsample_count - 2))
 	{
 		ret[i]
 			= {Write_descriptor_image<1, vk::DescriptorType::eStorageImage>(bloom_blur_descriptor_sets[i], 0)
@@ -549,7 +549,7 @@ Bloom_rt::link_bloom_acc()
 		bloom_downsample_count - 2>
 		ret;
 
-	for (auto i : Range(bloom_downsample_count - 2))
+	for (auto i : Iota(bloom_downsample_count - 2))
 	{
 		const auto src_view = i == bloom_downsample_count - 3 ? downsample_chain_view[bloom_downsample_count - 1] : upsample_chain_view[i + 1];
 
@@ -808,7 +808,7 @@ void Render_target_set::update(
 	const auto shadow_update = shadow_rt.update_uniform(shadow_matrices);
 
 	std::array<vk::WriteDescriptorSet, csm_count> shadow_update_info;
-	for (auto i : Range(csm_count)) shadow_update_info[i] = shadow_update[i];
+	for (auto i : Iota(csm_count)) shadow_update_info[i] = shadow_update[i];
 
 	const auto gbuffer_update = gbuffer_rt.update_uniform(gbuffer_camera);
 
@@ -843,7 +843,7 @@ void Render_targets::create(const Environment& env, const Pipeline_set& pipeline
 	render_target_set.clear();
 	render_target_set.resize(env.swapchain.image_count);
 
-	for (auto i : Range(env.swapchain.image_count))
+	for (auto i : Iota(env.swapchain.image_count))
 	{
 		render_target_set[i].create(env, pipeline, i);
 		render_target_set[i].link(env, auto_exposure_rt);

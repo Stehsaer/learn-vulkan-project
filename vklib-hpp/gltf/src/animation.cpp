@@ -149,14 +149,14 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		// store values
 		if (mode == Interpolation_mode::Cubic_spline)
 			// Cubic spline, 3 values per timestamp
-			for (auto i : Range(timestamp_list.size()))
+			for (auto i : Iota(timestamp_list.size()))
 			{
 				keyframes
 					.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i * 3 + 1], value_list[i * 3], value_list[i * 3 + 2]);
 			}
 		else
 			// Not cubic spline, 1 value per timestamp
-			for (auto i : Range(timestamp_list.size()))
+			for (auto i : Iota(timestamp_list.size()))
 			{
 				keyframes.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i]);
 			}
@@ -202,14 +202,14 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		// store values
 		if (mode == Interpolation_mode::Cubic_spline)
 			// Cubic spline, 3 values per timestamp
-			for (auto i : Range(timestamp_list.size()))
+			for (auto i : Iota(timestamp_list.size()))
 			{
 				keyframes
 					.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i * 3 + 1], value_list[i * 3], value_list[i * 3 + 2]);
 			}
 		else
 			// Not cubic spline, 1 value per timestamp
-			for (auto i : Range(timestamp_list.size()))
+			for (auto i : Iota(timestamp_list.size()))
 			{
 				keyframes.emplace_hint(keyframes.end(), timestamp_list[i], value_list[i]);
 			}

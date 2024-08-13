@@ -22,7 +22,7 @@ target("deferred_shading_gltf")
     add_files("src/logic/*.cpp")
 	
 	-- Shaders
-	add_rules("utils.glsl2spv", {bin2c = true, targetenv = "vulkan1.1"})
+	add_rules("vklib.glsl2spv_opt", {bin2c = true, targetenv = "vulkan1.1"})
 	add_files("shaders/*.comp", "shaders/*.frag", "shaders/*.vert")
 
 	-- Binary Resources

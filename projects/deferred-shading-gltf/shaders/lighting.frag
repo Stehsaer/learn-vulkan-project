@@ -102,24 +102,7 @@ float get_shadow(in vec3 position)
 	vec2 shadow_uv = (shadow_coord.xy * vec2(1.0, -1.0) + vec2(1.0)) / 2.0;
 	float depth = shadow_coord.z;
 
-	float rotate_offset = pseudoRandom(vec3(shadow_uv.xy, params.time) * 100) * PI * 2;
-	vec2 sample_delta = params.shadow_sizes[index].xy;
-
-	float shadow_accumulate = sample_shadowmap(index, shadow_uv, depth);
-	int num = 1;
-
-// #pragma unroll_loop_start
-	for(int i = 0; i < 4; i++)
-	{
-		vec2 uv = shadow_uv + rotate(poisson_disk[i] * sample_delta, rotate_offset + i * PI / 8.0);
-		if(uv.x > 1.0 || uv.x < 0.0 || uv.y > 1.0 || uv.y < 0.0) continue;
-
-		shadow_accumulate += sample_shadowmap(index, uv, depth);
-		num++;
-	}
-// #pragma unroll_loop_end
-
-	return min(shadow_accumulate / num * 1.3, 1.0);
+	return sample_shadowmap(index, shadow_uv, depth);
 }
 
 void main()

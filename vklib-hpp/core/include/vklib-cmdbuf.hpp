@@ -59,7 +59,7 @@ namespace VKLIB_HPP_NAMESPACE
 		inline void end() const { data->child.end(); }
 		inline void reset() const { data->child.reset(); }
 
-		inline void begin_render_pass(
+		void begin_render_pass(
 			const Render_pass&          render_pass,
 			const Framebuffer&          framebuffer,
 			const vk::Rect2D&           render_area,

@@ -1,5 +1,5 @@
 #pragma once
-#include "vklib-cmdbuf.hpp"
+#include "vklib/core/cmdbuf.hpp"
 
 namespace VKLIB_HPP_NAMESPACE::algorithm
 {

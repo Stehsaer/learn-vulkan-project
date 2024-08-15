@@ -1,7 +1,7 @@
 #pragma once
 
-#include <vklib-core.hpp>
-#include <vklib-sdl2.hpp>
+#include <vklib/core.hpp>
+#include <vklib/sdl2.hpp>
 
 
 inline constexpr uint32_t csm_count              = 3;

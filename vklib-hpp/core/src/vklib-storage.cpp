@@ -1,4 +1,4 @@
-#include "vklib-storage.hpp"
+#include "vklib/core/storage.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

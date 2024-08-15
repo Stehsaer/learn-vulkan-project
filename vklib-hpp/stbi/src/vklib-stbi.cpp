@@ -1,6 +1,7 @@
-#include "vklib-stbi.hpp"
 #include "stb_image.h"
-#include <vklib-algorithm.hpp>
+#include "vklib/stbi.hpp"
+#include <vklib/core/algorithm.hpp>
+
 
 namespace VKLIB_HPP_NAMESPACE::io::stbi
 {

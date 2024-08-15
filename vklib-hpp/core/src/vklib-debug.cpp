@@ -1,4 +1,4 @@
-#include "vklib-debug.hpp"
+#include "vklib/core/debug.hpp"
 
 static PFN_vkCreateDebugUtilsMessengerEXT  pfn_vk_create_debug_utils_messenger_ext  = nullptr;
 static PFN_vkDestroyDebugUtilsMessengerEXT pfn_vk_destroy_debug_utils_messenger_ext = nullptr;

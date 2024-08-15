@@ -1,5 +1,5 @@
 #define VMA_IMPLEMENTATION
-#include "vklib-allocator.hpp"
+#include "vklib/core/allocator.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

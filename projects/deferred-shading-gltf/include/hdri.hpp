@@ -1,7 +1,7 @@
 #pragma once
 
 #include "environment.hpp"
-#include <vklib-core.hpp>
+#include <vklib/core.hpp>
 
 constexpr uint32_t environment_layers = 6;
 

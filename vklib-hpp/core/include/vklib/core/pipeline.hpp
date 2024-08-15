@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vklib-env.hpp"
+#include "vklib/core/env.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {
@@ -76,8 +76,7 @@ namespace VKLIB_HPP_NAMESPACE
 
 		~Shader_module() override { clean(); }
 
-		vk::PipelineShaderStageCreateInfo stage_info(vk::ShaderStageFlagBits stage, const char* entry_name = "main")
-			const;
+		vk::PipelineShaderStageCreateInfo stage_info(vk::ShaderStageFlagBits stage, const char* entry_name = "main") const;
 	};
 
 	class Render_pass : public Child_resource<vk::RenderPass, Device>

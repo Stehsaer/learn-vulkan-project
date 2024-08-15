@@ -1,4 +1,4 @@
-#include "vklib-glfw3.hpp"
+#include "vklib/glfw3.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

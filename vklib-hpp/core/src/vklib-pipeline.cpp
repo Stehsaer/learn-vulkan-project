@@ -1,4 +1,4 @@
-#include "vklib-pipeline.hpp"
+#include "vklib/core/pipeline.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

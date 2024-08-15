@@ -15,6 +15,11 @@ Trying my best to make my codebase clean and neat! :smile:
 
 - `./vklib-hpp`: My customized C++ wrapper of original Vulkan C++ wrapper from Khronos. Heavily utilizes RAII and ensures dependency at resource releasing and cleaning.
 
+  **To-dos**:
+
+  - Auto Managed Render-graph
+  - Exception Handling Rework
+
 - `./projects`: Projects created while learning Vulkan.
 
   - `./projects/deferred-shading-gltf`: A program for rendering GLTF using deferred shading, utilizes and experiments with various real-time rendering techniques.

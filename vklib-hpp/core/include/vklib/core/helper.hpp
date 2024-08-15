@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vklib-common.hpp"
+#include "vklib/core/common.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

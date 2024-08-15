@@ -2,11 +2,12 @@
 
 #include <utility>
 
-#include "vklib-allocator.hpp"
-#include "vklib-base.hpp"
-#include "vklib-cmdbuf.hpp"
-#include "vklib-env.hpp"
-#include "vklib-storage.hpp"
+#include "vklib/core/allocator.hpp"
+#include "vklib/core/base.hpp"
+#include "vklib/core/cmdbuf.hpp"
+#include "vklib/core/env.hpp"
+#include "vklib/core/storage.hpp"
+
 
 namespace VKLIB_HPP_NAMESPACE
 {

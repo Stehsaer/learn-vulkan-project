@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vklib-env.hpp"
+#include "vklib/core/env.hpp"
 #include <GLFW/glfw3.h>
 
 namespace VKLIB_HPP_NAMESPACE

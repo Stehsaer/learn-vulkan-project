@@ -1,4 +1,4 @@
-#include "vklib-core.hpp"
+#include "vklib/core.hpp"
 
 namespace VKLIB_HPP_NAMESPACE::io::wavefront
 {

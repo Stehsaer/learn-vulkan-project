@@ -3,13 +3,14 @@
 #define TINYGLTF_USE_CPP14
 #include "tiny_gltf.h"
 
-#include "vklib-algorithm.hpp"
-#include "vklib-allocator.hpp"
-#include "vklib-env.hpp"
-#include "vklib-io.hpp"
-#include "vklib-pipeline.hpp"
-#include "vklib-storage.hpp"
-#include "vklib-sync.hpp"
+#include "vklib/core/algorithm.hpp"
+#include "vklib/core/allocator.hpp"
+#include "vklib/core/env.hpp"
+#include "vklib/core/io.hpp"
+#include "vklib/core/pipeline.hpp"
+#include "vklib/core/storage.hpp"
+#include "vklib/core/sync.hpp"
+
 
 #include <set>
 #include <unordered_set>

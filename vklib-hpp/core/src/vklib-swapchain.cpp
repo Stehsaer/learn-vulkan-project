@@ -1,4 +1,4 @@
-#include "vklib-swapchain.hpp"
+#include "vklib/core/swapchain.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

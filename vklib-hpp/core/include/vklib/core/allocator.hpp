@@ -1,10 +1,10 @@
 #pragma once
 
-//* vklib-allocator.hpp
+//* vklib/core/allocator.hpp
 //* Contains:
 //		- VMA Allocator
 
-#include "vklib-env.hpp"
+#include "vklib/core/env.hpp"
 #include <vk_mem_alloc.h>
 
 namespace VKLIB_HPP_NAMESPACE
@@ -90,11 +90,7 @@ namespace VKLIB_HPP_NAMESPACE
 			}
 			else
 			{
-				std::copy(
-					alloc_info.pMappedData,
-					(uint8_t*)alloc_info.pMappedData + alloc_info.size,
-					data_span.begin()
-				);
+				std::copy(alloc_info.pMappedData, (uint8_t*)alloc_info.pMappedData + alloc_info.size, data_span.begin());
 			}
 		}
 

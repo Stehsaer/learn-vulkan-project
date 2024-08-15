@@ -1,4 +1,4 @@
-#include "vklib-sync.hpp"
+#include "vklib/core/sync.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

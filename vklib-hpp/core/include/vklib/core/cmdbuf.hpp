@@ -1,8 +1,9 @@
 #pragma once
 
-#include "vklib-base.hpp"
-#include "vklib-pipeline.hpp"
-#include "vklib-storage.hpp"
+#include "vklib/core/base.hpp"
+#include "vklib/core/pipeline.hpp"
+#include "vklib/core/storage.hpp"
+
 
 namespace VKLIB_HPP_NAMESPACE
 {

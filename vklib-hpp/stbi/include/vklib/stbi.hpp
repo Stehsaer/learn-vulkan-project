@@ -1,4 +1,4 @@
-// > vklib-stbi.hpp
+// > vklib/stbi.hpp
 // ================
 // [Author] Stehsaer
 // ================
@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <vklib-io.hpp>
+#include <vklib/core/io.hpp>
 
 namespace VKLIB_HPP_NAMESPACE::io::stbi
 {

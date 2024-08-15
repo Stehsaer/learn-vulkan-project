@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vklib-env.hpp"
+#include "vklib/core/env.hpp"
 #include <SDL.h>
 #include <SDL_vulkan.h>
 

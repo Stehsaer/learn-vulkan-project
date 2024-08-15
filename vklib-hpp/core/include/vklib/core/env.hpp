@@ -1,6 +1,6 @@
 #pragma once
 
-//* vklib-env.hpp
+//* vklib/core/env.hpp
 //* Contains:
 //	- Window
 //	- Instance
@@ -13,7 +13,7 @@
 
 #include <utility>
 
-#include "vklib-base.hpp"
+#include "vklib/core/base.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

@@ -1,6 +1,6 @@
 #include "binary-resource.hpp"
 #include "logic.hpp"
-#include <vklib-stbi.hpp>
+#include <vklib/stbi.hpp>
 
 std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 {

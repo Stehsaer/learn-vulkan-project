@@ -1,4 +1,4 @@
-// vklib-io.hpp
+// vklib/core/io.hpp
 // ================
 // [Author] Hsin-chieh Liu (Stehsaer)
 // ================
@@ -8,9 +8,10 @@
 
 #pragma once
 
-#include "vklib-base.hpp"
-#include "vklib-common.hpp"
-#include "vklib-utility.hpp"
+#include "vklib/core/base.hpp"
+#include "vklib/core/common.hpp"
+#include "vklib/core/utility.hpp"
+
 
 namespace VKLIB_HPP_NAMESPACE::io
 {

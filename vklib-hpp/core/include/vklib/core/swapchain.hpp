@@ -1,7 +1,7 @@
 #pragma once
 
-#include "vklib-env.hpp"
-#include "vklib-storage.hpp"
+#include "vklib/core/env.hpp"
+#include "vklib/core/storage.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

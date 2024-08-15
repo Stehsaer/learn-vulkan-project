@@ -1,23 +1,17 @@
 #pragma once
 
-#include "vklib-cmdbuf.hpp"
-#include "vklib-common.hpp"
-#include "vklib-env.hpp"
-#include "vklib-io.hpp"
-#include "vklib-storage.hpp"
+#include "vklib/core/cmdbuf.hpp"
+#include "vklib/core/common.hpp"
+#include "vklib/core/env.hpp"
+#include "vklib/core/io.hpp"
+#include "vklib/core/storage.hpp"
+
 
 namespace VKLIB_HPP_NAMESPACE::utility
 {
 	inline constexpr vk::Viewport flip_viewport(const vk::Viewport& viewport)
 	{
-		return {
-			viewport.x,
-			viewport.y + viewport.height,
-			viewport.width,
-			-viewport.height,
-			viewport.minDepth,
-			viewport.maxDepth
-		};
+		return {viewport.x, viewport.y + viewport.height, viewport.width, -viewport.height, viewport.minDepth, viewport.maxDepth};
 	}
 
 	template <typename Unit_T>

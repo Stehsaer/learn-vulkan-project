@@ -1,5 +1,5 @@
 #include "tiny_obj_loader.h"
-#include "vklib-wavefront-obj.hpp"
+#include "vklib/wavefront-obj.hpp"
 
 namespace VKLIB_HPP_NAMESPACE::io::wavefront
 {

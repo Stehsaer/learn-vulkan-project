@@ -1,4 +1,4 @@
-#include "vklib-sdl2.hpp"
+#include "vklib/sdl2.hpp"
 
 namespace VKLIB_HPP_NAMESPACE
 {

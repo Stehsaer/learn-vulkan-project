@@ -1,4 +1,4 @@
-#include "vklib-algorithm.hpp"
+#include "vklib/core/algorithm.hpp"
 
 #include <memory_resource>
 #include <stack>

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "vklib-common.hpp"
-#include "vklib-helper.hpp"
+#include "vklib/core/common.hpp"
+#include "vklib/core/helper.hpp"
 #include <iostream>
 #include <utility>
 
@@ -192,7 +192,7 @@ namespace VKLIB_HPP_NAMESPACE
 		{
 		}
 
-		bool is_unique() const { return data.get() != nullptr && data.use_count() == 1; }
+		bool         is_unique() const { return data.get() != nullptr && data.use_count() == 1; }
 		virtual void clean() = 0;
 
 	  public:

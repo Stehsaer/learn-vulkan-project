@@ -110,15 +110,13 @@ namespace VKLIB_HPP_NAMESPACE::algorithm
 
 		bool AABB::on_frustum(const Frustum& frustum) const
 		{
-			return intersect_or_forward(frustum.near) && intersect_or_forward(frustum.far)
-				&& intersect_or_forward(frustum.left) && intersect_or_forward(frustum.right)
-				&& intersect_or_forward(frustum.top) && intersect_or_forward(frustum.bottom);
+			return intersect_or_forward(frustum.near) && intersect_or_forward(frustum.far) && intersect_or_forward(frustum.left)
+				&& intersect_or_forward(frustum.right) && intersect_or_forward(frustum.top) && intersect_or_forward(frustum.bottom);
 		}
 
 		bool AABB::inside(const glm::vec3& point) const
 		{
-			return abs(point.x - center.x) <= extent.x && abs(point.y - center.y) <= extent.y
-				&& abs(point.z - center.z) <= extent.z;
+			return abs(point.x - center.x) <= extent.x && abs(point.y - center.y) <= extent.y && abs(point.z - center.z) <= extent.z;
 		}
 	};
 

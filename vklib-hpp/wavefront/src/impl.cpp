@@ -15,7 +15,7 @@ namespace VKLIB_HPP_NAMESPACE::io::wavefront
 			auto parse_success = reader.ParseFromString(file_data, {}, reader_config);
 			if (!parse_success)
 			{
-				throw Exception("Failed to parse wavefront obj file", reader.Error());
+				throw error::Detailed_error("Failed to parse wavefront obj file", reader.Error());
 			}
 		}
 

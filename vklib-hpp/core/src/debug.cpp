@@ -46,7 +46,7 @@ namespace VKLIB_HPP_NAMESPACE
 		create_info.setMessageType(msg_type);
 		create_info.setPfnUserCallback(callback);
 
-		if (!load_debug_messenger_pfn(instance)) throw Exception("Debug messenger functions not found");
+		if (!load_debug_messenger_pfn(instance)) throw error::Detailed_error("Debug messenger functions not found");
 
 		auto handle = instance->createDebugUtilsMessengerEXT(create_info);
 		*this       = Debug_utility(handle, instance);

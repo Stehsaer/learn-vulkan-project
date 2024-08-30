@@ -1,5 +1,4 @@
 #include "data-accessor.hpp"
-#include "vklib-gltf.hpp"
 
 namespace VKLIB_HPP_NAMESPACE::io::gltf
 {

@@ -178,9 +178,14 @@ struct Bloom_pipeline
 
 	inline static constexpr auto chain_format = Lighting_pipeline::luminance_format;
 
-	struct Params
+	struct Filter_params
 	{
 		alignas(4) float start_threshold, end_threshold, exposure;
+	};
+
+	struct Acc_params
+	{
+		alignas(4) float attenuation_coeff;
 	};
 
 	// Bloom filter pipeline

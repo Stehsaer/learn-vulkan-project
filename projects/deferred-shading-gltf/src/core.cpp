@@ -27,7 +27,7 @@ bool Core::render_one_frame(const loop_func& loop_func)
 	}
 
 	const auto wait_fence_result = env.device->waitForFences({render_targets.next_frame_fence}, true, 1e10);
-	if (wait_fence_result != vk::Result::eSuccess) throw Exception("Fence wait timeout!");
+	if (wait_fence_result != vk::Result::eSuccess) throw error::Detailed_error("Fence wait timeout!");
 	env.device->resetFences({render_targets.next_frame_fence});
 
 	// Record Command Buffer

@@ -11,6 +11,11 @@ ivec2 global_id = ivec2(gl_GlobalInvocationID.xy);
 
 ivec2 offsets[4] = {ivec2(-1, -1), ivec2(-1, 1), ivec2(1, -1), ivec2(1, 1)};
 
+layout(push_constant) uniform Params
+{
+	float attenuation_coeff;
+} params;
+
 void main()
 {
 	vec4 value = imageLoad(dst, global_id);
@@ -29,7 +34,7 @@ void main()
 #pragma unroll_loop_end
 
 	sum_prev_mip /= 8;
-	sum_prev_mip += (texture(src, uv) + imageLoad(downsample, global_id)) * 0.5;
+	sum_prev_mip += (texture(src, uv) + imageLoad(downsample, global_id)) * params.attenuation_coeff;
 
 	imageStore(dst, global_id, sum_prev_mip + value);
 }

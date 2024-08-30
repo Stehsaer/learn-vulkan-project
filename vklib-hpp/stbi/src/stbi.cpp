@@ -7,21 +7,8 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 {
 	Stbi_raw_data<uint8_t> load_8bit(const std::string& path, int request_channel)
 	{
-		try
-		{
-			auto img_data = read(path);
-			return load_8bit(img_data, request_channel);
-		}
-		catch (const IO_exception& e)
-		{
-			throw[=]
-			{
-				auto rethrow = e;
-				rethrow.detail += std::format("(File: {})", path);
-				return rethrow;
-			}
-			();
-		}
+		auto img_data = read(path);
+		return load_8bit(img_data, request_channel);
 	}
 
 	Stbi_raw_data<uint8_t> load_8bit(std::span<const uint8_t> file_data, int request_channel)
@@ -36,7 +23,7 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 		if (img_data == nullptr)
 		{
 			const char* const reason = stbi_failure_reason();
-			throw IO_exception("Failed to read image", "[Binary Input]", reason);
+			throw Stbi_conversion_error(std::format("8-Bit Image, request_channel={}", request_channel), reason);
 		}
 
 		Stbi_raw_data<uint8_t> ret
@@ -51,21 +38,8 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 
 	Stbi_raw_data<uint16_t> load_16bit(const std::string& path, int request_channel)
 	{
-		try
-		{
-			auto img_data = read(path);
-			return load_16bit(img_data, request_channel);
-		}
-		catch (const IO_exception& e)
-		{
-			throw[=]
-			{
-				auto rethrow = e;
-				rethrow.detail += std::format("(File: {})", path);
-				return rethrow;
-			}
-			();
-		}
+		auto img_data = read(path);
+		return load_16bit(img_data, request_channel);
 	}
 
 	Stbi_raw_data<uint16_t> load_16bit(std::span<const uint8_t> file_data, int request_channel)
@@ -80,7 +54,7 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 		if (img_data == nullptr)
 		{
 			const char* const reason = stbi_failure_reason();
-			throw IO_exception("Failed to read image", "[Binary Input]", reason);
+			throw Stbi_conversion_error(std::format("16-Bit Image, request_channel={}", request_channel), reason);
 		}
 
 		Stbi_raw_data<uint16_t> ret
@@ -95,21 +69,8 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 
 	Stbi_raw_data<float> load_hdri(const std::string& path)
 	{
-		try
-		{
-			auto img_data = read(path);
-			return load_hdri(img_data);
-		}
-		catch (const IO_exception& e)
-		{
-			throw[=]
-			{
-				auto rethrow = e;
-				rethrow.detail += std::format("(File: {})", path);
-				return rethrow;
-			}
-			();
-		}
+		auto img_data = read(path);
+		return load_hdri(img_data);
 	}
 
 	Stbi_raw_data<float> load_hdri(std::span<const uint8_t> file_data)
@@ -124,7 +85,7 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 		if (img_data == nullptr)
 		{
 			const char* const reason = stbi_failure_reason();
-			throw IO_exception("Failed to read image", reason);
+			throw Stbi_conversion_error("32-bit Float Image (HDRI)", reason);
 		}
 
 		Stbi_raw_data<float> ret
@@ -218,8 +179,7 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 		bool                  generate_mipmap [[maybe_unused]]
 	) const
 	{
-		if (channels != 4)
-			throw IO_exception("Unsupported channel count", "The function only supports vulkan conversion of 4-channel images");
+		if (channels != 4) throw error::Not_implemented("The function only supports vulkan conversion of 4-channel images by now");
 
 		const vk::Format   image_format = vk::Format::eR8G8B8A8Unorm;
 		Stbi_vulkan_result result;
@@ -298,8 +258,7 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 		bool                  generate_mipmap [[maybe_unused]]
 	) const
 	{
-		if (channels != 4)
-			throw IO_exception("Unsupported channel count", "The function only supports vulkan conversion of 4-channel images");
+		if (channels != 4) throw error::Not_implemented("The function only supports vulkan conversion of 4-channel images by now");
 
 		const vk::Format   image_format = vk::Format::eR16G16B16A16Unorm;
 		Stbi_vulkan_result result;

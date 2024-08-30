@@ -127,7 +127,7 @@ std::shared_ptr<Application_logic_base> App_render_logic::work()
 
 		// wait for fences
 		const auto wait_fence_result = core->env.device->waitForFences({core->render_targets.next_frame_fence}, true, 1e10);
-		if (wait_fence_result != vk::Result::eSuccess) throw Exception("Fence wait timeout!");
+		if (wait_fence_result != vk::Result::eSuccess) throw error::Detailed_error("Fence wait timeout!");
 		core->env.device->resetFences({core->render_targets.next_frame_fence});
 
 		// Submit Command Buffers
@@ -1100,7 +1100,7 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 			{}
 		);
 
-		const Bloom_pipeline::Params params{core->params.bloom_start, core->params.bloom_end, exp2(core->params.exposure_ev)};
+		const Bloom_pipeline::Filter_params params{core->params.bloom_start, core->params.bloom_end, exp2(core->params.exposure_ev)};
 
 		command_buffer
 			.push_constants(pipeline.bloom_pipeline.bloom_filter_pipeline_layout, vk::ShaderStageFlagBits::eCompute, params, 0);
@@ -1245,6 +1245,13 @@ void App_render_logic::compute_bloom(uint32_t idx, const Command_buffer& command
 		core->env.debug_marker.begin_region(command_buffer, "Accumulate", {1.0, 1.0, 0.0, 1.0});
 		{
 			command_buffer.bind_pipeline(vk::PipelineBindPoint::eCompute, pipeline.bloom_pipeline.bloom_acc_pipeline);
+			command_buffer.push_constants(
+				pipeline.bloom_pipeline.bloom_acc_pipeline_layout,
+				vk::ShaderStageFlagBits::eCompute,
+				Bloom_pipeline::Acc_params{1 / core->params.bloom_attenuation},
+				0
+			);
+
 			for (int i = bloom_downsample_count - 3; i >= 0; i--)
 			{
 				const auto extent = rt.bloom_rt.extents[i + 1];
@@ -1432,6 +1439,8 @@ void App_render_logic::lighting_tab()
 				"%.2fx",
 				ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat
 			);
+
+			ImGui::SliderFloat("Bloom Attenuation", &params.bloom_attenuation, 1, 5, "%.2f");
 		}
 
 		ImGui::Separator();

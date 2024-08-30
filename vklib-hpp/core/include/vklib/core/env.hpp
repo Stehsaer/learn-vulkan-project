@@ -43,11 +43,6 @@ namespace VKLIB_HPP_NAMESPACE
 		static bool query_instance_extension_support(const char* extension_name);
 	};
 
-	struct Window_exception : public Exception
-	{
-		using Exception::Exception;
-	};
-
 	// Base class for all window implementations
 	class Window_base
 	{

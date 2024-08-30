@@ -17,6 +17,8 @@ class Node_traverser
 		glm::mat4 base_transformation = glm::mat4(1.0);
 
 		uint32_t scene_idx;
+
+		void verify() const;
 	};
 
 	struct Traverse_node
@@ -44,34 +46,7 @@ struct Drawcall
 
 	float near, far;
 
-	bool operator<(const Drawcall& other) const
-	{
-		struct Sort_distance
-		{
-			float near, far;
-
-			Sort_distance(const Drawcall& drawcall) :
-				near(drawcall.near),
-				far(drawcall.far)
-			{
-			}
-
-			Sort_distance() = default;
-
-			auto operator<=>(const Sort_distance& other) const
-			{
-				if (near < 0 && other.near < 0) return far <=> other.far;
-
-				if (near < 0) return std::partial_ordering::less;
-				if (other.near < 0) return std::partial_ordering::greater;
-
-				return std::tuple(far, near) <=> std::tuple(other.far, other.near);
-			}
-		};
-
-		return std::tuple(Sort_distance(*this), primitive.material_idx, primitive.position_buffer, node_idx)
-			 < std::tuple(Sort_distance(other), other.primitive.material_idx, other.primitive.position_buffer, node_idx);
-	}
+	bool operator<(const Drawcall& other) const;
 };
 
 struct Drawlist
@@ -130,6 +105,8 @@ class Drawcall_generator
 			eye_position = param.eye_position;
 			eye_path     = param.eye_direction;
 		}
+
+		void verify() const;
 	};
 
 	struct Gen_result

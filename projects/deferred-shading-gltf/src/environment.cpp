@@ -24,7 +24,7 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 
 	/* DEBUG */
 
-	if (device_list.size() == 0) throw Exception("Can't find suitable physical device");
+	if (device_list.size() == 0) throw error::Detailed_error("Can't find suitable physical device");
 
 	if (device_list.size() == 1)
 	{
@@ -33,7 +33,7 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 				|| device_list[0].getProperties().deviceType == vk::PhysicalDeviceType::eIntegratedGpu))
 			return device_list[0];
 
-		throw Exception("Can't find suitable physical device");
+		throw error::Detailed_error("Can't find suitable physical device");
 	}
 
 	auto type_name = [](vk::PhysicalDeviceType type) -> const char*
@@ -98,7 +98,7 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 			return device;
 	}
 
-	throw Exception("Can't find suitable physical device");
+	throw error::Detailed_error("Can't find suitable physical device");
 
 #endif
 }
@@ -202,7 +202,7 @@ void Environment::find_queue_families()
 		return std::nullopt;
 	}();
 
-	if (!g_family_match || !p_family_match || !c_family_match) throw Exception("Can't find suitable family queue");
+	if (!g_family_match || !p_family_match || !c_family_match) throw error::Detailed_error("Can't find suitable family queue");
 
 	g_family_idx = g_family_match.value(), p_family_idx = p_family_match.value(), c_family_idx = c_family_match.value();
 	g_family_count = family_properties[g_family_idx].queueCount;
@@ -248,7 +248,7 @@ void Environment::create_logic_device()
 	if (device_features.independentBlend)
 		requested_features.independentBlend = true;
 	else
-		throw Exception("Device Feature Unsupported: Independent Blend");
+		throw error::Detailed_error("Device Feature Unsupported: Independent Blend");
 
 	std::vector device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 

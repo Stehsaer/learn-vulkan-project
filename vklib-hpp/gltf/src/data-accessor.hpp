@@ -1,12 +1,12 @@
 #pragma once
-#include "vklib-gltf.hpp"
+#include "vklib/gltf.hpp"
 
 namespace vklib::io::gltf::data_parser
 {
-	struct Parse_error : public Exception
+	struct Parse_error : public error::Detailed_error
 	{
 		Parse_error(const std::string& msg, const std::source_location& loc = std::source_location::current()) :
-			Exception(std::format("(General Gltf Data Parser Error) {}", msg), {}, loc)
+			Detailed_error("General Gltf Data Parser Error", msg, loc)
 		{
 		}
 	};

@@ -25,7 +25,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			return (uint32_t)val;
 	}
 
-	struct Gltf_parse_error : public Exception
+	struct Gltf_parse_error : public error::Detailed_error
 	{
 		std::string description;
 
@@ -34,7 +34,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			const std::string&          description,
 			const std::source_location& loc = std::source_location::current()
 		) :
-			Exception(std::format("(Gltf Parse Error) {}", msg), description, loc)
+			Detailed_error(std::format("(Gltf Parse Error) {}", msg), description, loc)
 		{
 		}
 	};
@@ -248,14 +248,14 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		}
 	};
 
-	struct Animation_runtime_error : Exception
+	struct Animation_runtime_error : error::Detailed_error
 	{
 		Animation_runtime_error(
 			const std::string&   msg,
 			const std::string&   detail = "",
 			std::source_location loc    = std::source_location::current()
 		) :
-			Exception(std::format("Animation Error: {}", msg), detail, loc)
+			Detailed_error(std::format("Animation Error: {}", msg), detail, loc)
 		{
 		}
 	};

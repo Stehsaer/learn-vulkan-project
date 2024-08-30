@@ -1,5 +1,4 @@
 #include "data-accessor.hpp"
-#include "vklib-gltf.hpp"
 
 namespace VKLIB_HPP_NAMESPACE::io::gltf
 {
@@ -656,7 +655,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 				if (material.alphaMode == "MASK") return Alpha_mode::Mask;
 				if (material.alphaMode == "BLEND") return Alpha_mode::Blend;
 
-				throw Exception("Invalid Alpha Mode Property");
+				throw error::Detailed_error("Invalid Alpha Mode Property");
 			}();
 
 			// Emissive
@@ -893,7 +892,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		if (!result)
 		{
 			if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Error;
-			throw Exception(std::format("Load GLTF (Binary Format) Failed: {}", err));
+			throw error::Detailed_error(std::format("Load GLTF (Binary Format) Failed: {}", err));
 		}
 
 		load(loader_context, gltf_model);
@@ -915,7 +914,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		if (!result)
 		{
 			if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Error;
-			throw Exception(std::format("Load GLTF (ASCII Format) Failed: {}", err));
+			throw error::Detailed_error(std::format("Load GLTF (ASCII Format) Failed: {}", err));
 		}
 
 		load(loader_context, gltf_model);
@@ -937,7 +936,7 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 		if (!result)
 		{
 			if (loader_context.load_stage) *loader_context.load_stage = Load_stage::Error;
-			throw Exception(std::format("Load GLTF (Binary Format from MEM) Failed: {}", err));
+			throw error::Detailed_error(std::format("Load GLTF (Binary Format from MEM) Failed: {}", err));
 		}
 
 		load(loader_context, gltf_model);

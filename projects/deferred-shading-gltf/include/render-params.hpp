@@ -4,7 +4,7 @@
 #include "hdri.hpp"
 #include "pipeline.hpp"
 
-#include <vklib-gltf.hpp>
+#include <vklib/gltf.hpp>
 
 inline const std::map<Fxaa_mode, const char*> fxaa_mode_name{
 	{Fxaa_mode::No_fxaa,         "No FXAA"          },
@@ -123,7 +123,7 @@ struct Render_params
 	float emissive_brightness = 1;
 	float skybox_brightness   = 1;
 
-	float bloom_start = 2.0, bloom_end = 15.0, bloom_intensity = 0.02;
+	float bloom_start = 2.0, bloom_end = 15.0, bloom_intensity = 0.02, bloom_attenuation = 2.0;
 	float adapt_speed = 1;
 
 	/*====== Shadow ======*/

@@ -44,7 +44,7 @@ void App_load_model_logic::load_thread_work()
 
 		core->env.log_msg("Loaded model");
 	}
-	catch (const Exception& e)
+	catch (const error::Detailed_error& e)
 	{
 		load_err_msg       = e.msg;
 		load_stage         = io::gltf::Load_stage::Error;

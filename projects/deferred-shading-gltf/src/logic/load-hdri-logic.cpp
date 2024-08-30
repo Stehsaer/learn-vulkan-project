@@ -75,7 +75,7 @@ std::shared_ptr<Application_logic_base> App_load_hdri_logic::work()
 		load_state = Load_state::Load_success;
 		core->env.log_msg("Loaded HDRi");
 	}
-	catch (const Exception& e)
+	catch (const error::Detailed_error& e)
 	{
 		load_fail_reason = std::format("{} at {}", e.msg, e.loc.function_name());
 		load_state       = Load_state::Load_failed;

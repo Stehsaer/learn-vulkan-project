@@ -29,7 +29,7 @@ namespace VKLIB_HPP_NAMESPACE
 		if (new_window == nullptr)
 		{
 			const char* err = SDL_GetError();
-			throw Window_exception(err);
+			throw error::Detailed_error("Unable to create SDL2 window", err);
 		}
 
 		*this = SDL2_window(new_window);
@@ -72,7 +72,7 @@ namespace VKLIB_HPP_NAMESPACE
 		{
 			const char* err_info = SDL_GetError();
 
-			throw Exception(err_info);
+			throw error::Detailed_error(err_info);
 		}
 
 		return surface;

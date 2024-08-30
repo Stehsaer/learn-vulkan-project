@@ -1,5 +1,4 @@
 #include "data-accessor.hpp"
-#include "vklib-gltf.hpp"
 
 namespace VKLIB_HPP_NAMESPACE::io::gltf
 {
@@ -36,7 +35,8 @@ namespace VKLIB_HPP_NAMESPACE::io::gltf
 			}
 
 			// no format available
-			throw Exception(std::format("Failed to load texture, pixel_type={}, component={}", pixel_type, component_count));
+			throw error::Detailed_error(std::format("Failed to load texture, pixel_type={}, component={}", pixel_type, component_count)
+			);
 		}(tex.pixel_type, tex.component);
 
 		Buffer         staging_buffer;

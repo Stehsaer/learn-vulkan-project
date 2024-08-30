@@ -36,6 +36,34 @@ namespace VKLIB_HPP_NAMESPACE::io::stbi
 		to_vulkan(const Vma_allocator& allocator, const Command_buffer& command_buffer, bool generate_mipmap) const;
 	};
 
+	// Class of STBI conversion error.
+	// Includes: image decoding error
+	struct Stbi_conversion_error : public error::Detailed_error
+	{
+		std::string convert_desc;
+
+		Stbi_conversion_error(
+			std::string                 convert_desc,
+			std::string                 detail = "",
+			const std::source_location& loc    = std::source_location::current()
+		) :
+			Detailed_error("Decode error", std::move(detail), loc),
+			convert_desc(std::move(convert_desc))
+		{
+		}
+
+		virtual std::string format() const
+		{
+			return std::format(
+				"At {} [Line {}]:\n\t[Brief] Decoding error\n\t[Decode]{}\n\t[Detail] {}",
+				error::crop_file_macro(loc.file_name()),
+				loc.line(),
+				convert_desc,
+				detail
+			);
+		}
+	};
+
 	// > Load 8bit image from file.
 	// `path`: Image file path
 	// `request_channel`: Requested channel count; normally and default to 4 channels (RGBA); choose 1 for grayscale

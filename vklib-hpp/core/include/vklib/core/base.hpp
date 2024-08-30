@@ -1,52 +1,13 @@
 #pragma once
 
 #include "vklib/core/common.hpp"
+#include "vklib/core/error.hpp"
 #include "vklib/core/helper.hpp"
 #include <iostream>
 #include <utility>
 
-#define No_discard [[nodiscard]]
-
 namespace VKLIB_HPP_NAMESPACE
 {
-	inline constexpr std::string crop_file_macro(const std::string& str)
-	{
-		int len = str.length();
-		while (--len >= 0)
-			if (str[len] == '/' || str[len] == '\\') return str.substr(len + 1);
-		return str;
-	}
-
-	struct Exception
-	{
-		std::string          msg, detail;
-		std::source_location loc;
-
-		Exception(std::string _msg, std::string detail = "", const std::source_location& _loc = std::source_location::current()) :
-			msg(std::move(_msg)),
-			detail(std::move(detail)),
-			loc(_loc)
-		{
-		}
-	};
-
-	struct Invalid_argument : public Exception
-	{
-		std::string param_name, expect;
-
-		Invalid_argument(
-			const std::string&          msg,
-			std::string                 param_name,
-			std::string                 expect = "",
-			const std::source_location& _loc   = std::source_location::current()
-		) :
-			Exception(msg, std::format("Parameter \"{}\" Invalid. Expects: {}", param_name, expect), _loc),
-			param_name(std::move(param_name)),
-			expect(std::move(expect))
-		{
-		}
-	};
-
 	template <typename T>
 	class Mono_resource
 	{

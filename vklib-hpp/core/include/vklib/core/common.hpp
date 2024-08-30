@@ -20,7 +20,6 @@
 #include <memory>
 #include <optional>
 #include <ranges>
-#include <source_location>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -28,3 +27,4 @@
 #include <vector>
 
 #define VKLIB_HPP_NAMESPACE vklib
+#define No_discard [[nodiscard]]

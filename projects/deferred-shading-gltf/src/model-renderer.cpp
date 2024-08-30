@@ -1,15 +1,16 @@
 #include "model-renderer.hpp"
 
+#pragma region /* Node_traverser::Traverse_params */
+
+void Node_traverser::Traverse_params::verify() const
+{
+	error::Invalid_argument::check(model != nullptr, "params.model should be non-NULL");
+	error::Invalid_argument::check(node_trans_lut != nullptr, "params.node_trans_lut should be non-NULL");
+	error::Invalid_argument::check(scene_idx < model->scenes.size(), "params.scene_idx should be smaller than scene count");
+}
+
 void Node_traverser::traverse(const Traverse_params& params)
 {
-	// check input params
-	if (params.model == nullptr) throw Invalid_argument("Invalid traverse parameter", "params.model", "not nullptr");
-
-	if (params.node_trans_lut == nullptr) throw Invalid_argument("Invalid traverse parameter", "params.node_trans_lut", "not nullptr");
-
-	if (params.scene_idx >= params.model->scenes.size())
-		throw Invalid_argument("Scene index exceeds scene count", "params.scene_idx", "smaller than scene count");
-
 	const auto& model = *params.model;
 
 	transform_list.resize(model.nodes.size(), {});
@@ -33,6 +34,43 @@ void Node_traverser::traverse(const Traverse_params& params, uint32_t node_idx, 
 
 	for (const auto idx : node.children) traverse(params, idx, node_trans);
 }
+
+#pragma endregion
+
+#pragma region /* Drawcall */
+
+bool Drawcall::operator<(const Drawcall& other) const
+{
+	struct Sort_distance
+	{
+		float near, far;
+
+		Sort_distance(const Drawcall& drawcall) :
+			near(drawcall.near),
+			far(drawcall.far)
+		{
+		}
+
+		Sort_distance() = default;
+
+		auto operator<=>(const Sort_distance& other) const
+		{
+			if (near < 0 && other.near < 0) return far <=> other.far;
+
+			if (near < 0) return std::partial_ordering::less;
+			if (other.near < 0) return std::partial_ordering::greater;
+
+			return std::tuple(far, near) <=> std::tuple(other.far, other.near);
+		}
+	};
+
+	return std::tuple(Sort_distance(*this), primitive.material_idx, primitive.position_buffer, node_idx)
+		 < std::tuple(Sort_distance(other), other.primitive.material_idx, other.primitive.position_buffer, node_idx);
+}
+
+#pragma endregion
+
+#pragma region /* Drawlist */
 
 void Drawlist::emplace(const Drawcall& drawcall, io::gltf::Alpha_mode mode)
 {
@@ -100,11 +138,24 @@ void Drawlist::draw(const Draw_params& params) const
 	draw(blend, params.pipeline_set.blend, params.bind_vertex_func_blend, params.bind_node_func);
 }
 
+#pragma endregion
+
+#pragma region /* Drawcall_generator::Gen_params */
+
+void Drawcall_generator::Gen_params::verify() const
+{
+	error::Invalid_argument::check(model != nullptr, "params.model should be non-NULL");
+	error::Invalid_argument::check(node_traverser != nullptr, "params.node_traverser should be non-NULL");
+}
+
+#pragma endregion
+
+#pragma region /* Drawcall_generator */
+
 Drawcall_generator::Gen_result Drawcall_generator::generate(const Gen_params& params)
 {
-	// check input parameter
-	if (params.model == nullptr) throw Invalid_argument("Invalid traverse parameter", "params.model", "not nullptr");
-	if (params.node_traverser == nullptr) throw Invalid_argument("Invalid node traverser", "params.node_traverser", "not nullptr");
+	// Verify input parameters
+	params.verify();
 
 	// initialize buffers
 	single_sided.clear();
@@ -213,3 +264,5 @@ Drawcall_generator::Gen_result Drawcall_generator::generate(const Gen_params& pa
 
 	return result;
 }
+
+#pragma endregion

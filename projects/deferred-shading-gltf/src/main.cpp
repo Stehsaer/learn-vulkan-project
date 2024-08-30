@@ -65,7 +65,7 @@ int main(int argc [[maybe_unused]], char** argv [[maybe_unused]])
 
 		return EXIT_SUCCESS;
 	}
-	catch (const Exception& err)
+	catch (const error::Detailed_error& err)
 	{
 		std::cerr << "Error: " << err.msg << '\n';
 

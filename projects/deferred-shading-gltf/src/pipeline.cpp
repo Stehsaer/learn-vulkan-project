@@ -945,7 +945,7 @@ void Auto_exposure_compute_pipeline::create(const Environment& env)
 
 void Bloom_pipeline::create(const Environment& env)
 {
-	bloom_filter_descriptor_set_layout = [=]
+	bloom_filter_descriptor_set_layout = [&]
 	{
 		const std::array<vk::DescriptorSetLayoutBinding, 3> bindings({
 			{0, vk::DescriptorType::eStorageImage,  1, vk::ShaderStageFlagBits::eCompute},
@@ -956,7 +956,7 @@ void Bloom_pipeline::create(const Environment& env)
 		return Descriptor_set_layout(env.device, bindings);
 	}();
 
-	bloom_blur_descriptor_set_layout = [=]
+	bloom_blur_descriptor_set_layout = [&]
 	{
 		const std::array<vk::DescriptorSetLayoutBinding, 2> bindings({
 			{0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute},
@@ -966,7 +966,7 @@ void Bloom_pipeline::create(const Environment& env)
 		return Descriptor_set_layout(env.device, bindings);
 	}();
 
-	bloom_acc_descriptor_set_layout = [=]
+	bloom_acc_descriptor_set_layout = [&]
 	{
 		const std::array<vk::DescriptorSetLayoutBinding, 3> bindings({
 			{0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eCompute},
@@ -977,17 +977,21 @@ void Bloom_pipeline::create(const Environment& env)
 		return Descriptor_set_layout(env.device, bindings);
 	}();
 
-	bloom_filter_pipeline_layout = [=, this]
+	bloom_filter_pipeline_layout = [&, this]
 	{
-		const vk::PushConstantRange push_constant_range{vk::ShaderStageFlagBits::eCompute, 0, sizeof(Params)};
+		const vk::PushConstantRange push_constant_range{vk::ShaderStageFlagBits::eCompute, 0, sizeof(Filter_params)};
 		return Pipeline_layout(env.device, {bloom_filter_descriptor_set_layout}, {push_constant_range});
 	}();
 	env.debug_marker.set_object_name(bloom_filter_pipeline_layout, "Bloom Filter Pipeline Layout");
 
 	bloom_blur_pipeline_layout = Pipeline_layout(env.device, {bloom_blur_descriptor_set_layout}, {});
-	env.debug_marker.set_object_name(bloom_blur_pipeline_layout, "BLoom Blur Pipeline Layout");
+	env.debug_marker.set_object_name(bloom_blur_pipeline_layout, "Bloom Blur Pipeline Layout");
 
-	bloom_acc_pipeline_layout = Pipeline_layout(env.device, {bloom_acc_descriptor_set_layout}, {});
+	bloom_acc_pipeline_layout = [&, this]
+	{
+		const vk::PushConstantRange push_constant_range{vk::ShaderStageFlagBits::eCompute, 0, sizeof(Acc_params)};
+		return Pipeline_layout(env.device, {bloom_acc_descriptor_set_layout}, {push_constant_range});
+	}();
 	env.debug_marker.set_object_name(bloom_acc_pipeline_layout, "Bloom Accumulation Pipeline Layout");
 
 	bloom_filter_pipeline = [=, this]

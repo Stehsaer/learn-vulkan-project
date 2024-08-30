@@ -149,7 +149,7 @@ class App_render_logic : public Application_logic_base
 
 	bool show_panel = true;
 
-	std::unordered_map<uint32_t, vklib::io::gltf::Node_transformation> animation_buffer;
+	std::vector<std::optional<io::gltf::Node_transformation>> node_transformations;
 
 	int    selected_animation = -1;
 	bool   animation_playing = false, animation_cycle = true;

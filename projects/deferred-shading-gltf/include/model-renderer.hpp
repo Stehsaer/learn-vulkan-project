@@ -9,7 +9,7 @@ class Node_traverser
 
 	struct Traverse_params
 	{
-		using Node_lut = std::unordered_map<uint32_t, io::gltf::Node_transformation>;
+		using Node_lut = std::vector<std::optional<io::gltf::Node_transformation>>;
 
 		const io::gltf::Model*       model          = nullptr;
 		const Node_lut*              node_trans_lut = nullptr;

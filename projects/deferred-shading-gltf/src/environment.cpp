@@ -55,8 +55,6 @@ Physical_device Environment::helper_select_physical_device(const std::vector<Phy
 
 	for (auto [i, device] : Walk(device_list))
 	{
-		const auto& device = device_list[i];
-
 		std::cout << std::format(
 			"[Device {}]: {} ({})\n",
 			i,

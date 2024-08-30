@@ -25,10 +25,9 @@ void Node_traverser::traverse(const Traverse_params& params, uint32_t node_idx, 
 {
 	const auto& model = *params.model;
 	const auto& node  = model.nodes[node_idx];
-	const auto  find  = params.node_trans_lut->find(node_idx);
+	const auto& find  = (*params.node_trans_lut)[node_idx];
 
-	const auto node_trans
-		= transform * (find == params.node_trans_lut->end() ? node.transformation.get_mat4() : find->second.get_mat4());
+	const auto node_trans = transform * (find == std::nullopt ? node.transformation.get_mat4() : find.value().get_mat4());
 
 	transform_list[node_idx] = {node_trans, true};
 

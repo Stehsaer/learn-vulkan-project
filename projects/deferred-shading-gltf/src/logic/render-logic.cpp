@@ -251,9 +251,14 @@ void App_render_logic::draw(uint32_t idx)
 
 void App_render_logic::generate_drawcalls(uint32_t idx)
 {
+	const auto& model = *core->source.model;
+
+	// Ensure node_transformations size is correct
+	if (node_transformations.size() != model.nodes.size()) node_transformations.resize(model.nodes.size(), std::nullopt);
+
 	if (selected_animation >= 0) update_animation();
 
-	const Node_traverser::Traverse_params traverse_param{core->source.model.get(), &animation_buffer, glm::mat4(1.0), 0};
+	const Node_traverser::Traverse_params traverse_param{core->source.model.get(), &node_transformations, glm::mat4(1.0), 0};
 	traverser.traverse(traverse_param);
 
 	// Generate Gbuffer
@@ -1634,12 +1639,10 @@ void App_render_logic::update_animation()
 
 	animation.set_transformation(
 		animation_time,
-		[&](uint32_t idx)
+		[&](uint32_t idx) -> vklib::io::gltf::Node_transformation&
 		{
-			auto find = animation_buffer.find(idx);
-			if (find == animation_buffer.end()) find = animation_buffer.emplace(idx, model.nodes[idx].transformation).first;
-
-			return std::ref(find->second);
+			if (!node_transformations[idx].has_value()) node_transformations[idx] = model.nodes[idx].transformation;
+			return std::ref(node_transformations[idx].value());
 		}
 	);
 }
@@ -1678,7 +1681,7 @@ void App_render_logic::animation_tab()
 		{
 			selected_animation = -1;
 			animation_playing  = false;
-			animation_buffer.clear();
+			node_transformations.clear();
 		}
 
 		// Iterate over all animations
@@ -1692,7 +1695,7 @@ void App_render_logic::animation_tab()
 			{
 				selected_animation = i;
 				animation_playing  = false;
-				animation_buffer.clear();
+				node_transformations.clear();
 			}
 		}
 
